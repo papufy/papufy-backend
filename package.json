@@ -6,15 +6,11 @@
     "node": ">=20"
   },
   "scripts": {
-    "dev": "tsx watch src/index.ts",
     "build": "prisma generate && tsc",
     "start": "node dist/index.js",
     "postinstall": "prisma generate",
     "db:generate": "prisma generate",
-    "db:push": "prisma db push",
-    "db:seed": "tsx prisma/seed.ts",
-    "db:setup": "prisma generate && prisma db push && tsx prisma/seed.ts",
-    "render:build": "npm ci && prisma generate && npm run build && prisma db push"
+    "db:seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.9.0",

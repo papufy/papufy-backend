@@ -1,39 +1,23 @@
 # Papufy API
 
-Backend Node.js + Express + Prisma + PostgreSQL (Supabase).
+Node.js + Express + Prisma + **Supabase PostgreSQL**.
 
-## Deploy no Render
+## Deploy (Render)
 
-1. Conecte este repositório em [Render Dashboard](https://dashboard.render.com).
-2. Use o `render.yaml` ou crie um **Web Service** Node:
-   - **Build:** `npm ci && npx prisma generate && npm run build && npx prisma db push`
-   - **Start:** `npm run start`
-   - **Health check:** `/health`
-3. Copie as variáveis de `.env` (raiz deste repo) para **Environment** no Render.
-4. Após o primeiro deploy, rode o seed uma vez (Shell do Render):
+1. Conecte [github.com/papufy/papufy-backend](https://github.com/papufy/papufy-backend).
+2. Build: `npm ci && npx prisma generate && npm run build`
+3. Start: `npm run start`
+4. Health: `/health`
+5. Variáveis: copie `env.render.template` → painel Render.
 
-```bash
-npx tsx prisma/seed.ts
-```
+## Após o 1º deploy
 
-## Variáveis obrigatórias
-
-| Variável | Descrição |
-|----------|-----------|
-| `DATABASE_URL` | Supabase pooler (porta **6543**) |
-| `DIRECT_URL` | Supabase direct (porta **5432**) |
-| `JWT_SECRET` | Segredo forte (32+ chars) |
-| `PUBLIC_BASE_URL` | URL do serviço Render (`https://....onrender.com`) |
-| `FRONTEND_URL` | URL do app Vercel |
-| `CORS_ORIGIN` | Mesma URL do frontend (opcional se usar `FRONTEND_URL`) |
-
-## Local
+Shell do Render:
 
 ```bash
-cp .env.example .env
-npm install
-npm run db:setup
-npm run dev
+npm run db:seed
 ```
 
-API: http://127.0.0.1:3333/health
+## Banco Supabase
+
+Ver [SUPABASE.md](./SUPABASE.md). Schema já criado no projeto `lyxdjprsfstxqakudhjd`.

@@ -1,5 +1,5 @@
-# Blueprint Render — https://github.com/papufy/papufy-backend
-# Dashboard: New > Blueprint > conectar este repositório
+# Render — https://github.com/papufy/papufy-backend
+# Banco: Supabase (schema já aplicado via supabase/migrations)
 
 services:
   - type: web
@@ -7,7 +7,7 @@ services:
     runtime: node
     region: oregon
     plan: free
-    buildCommand: npm ci && npx prisma generate && npm run build && npx prisma db push
+    buildCommand: npm ci && npx prisma generate && npm run build
     startCommand: npm run start
     healthCheckPath: /health
     envVars:
@@ -23,9 +23,9 @@ services:
         generateValue: true
       - key: JWT_EXPIRES_IN
         value: 7d
-      - key: CORS_ORIGIN
-        sync: false
       - key: FRONTEND_URL
+        sync: false
+      - key: CORS_ORIGIN
         sync: false
       - key: PUBLIC_BASE_URL
         sync: false

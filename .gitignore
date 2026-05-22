@@ -4,6 +4,6 @@ dist/
 .env.local
 uploads/
 prisma/dev.db
-prisma/dev.db-journal
+*.db
 *.log
 .DS_Store
