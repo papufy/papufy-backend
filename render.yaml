@@ -1,0 +1,33 @@
+# Blueprint Render — https://github.com/papufy/papufy-backend
+# Dashboard: New > Blueprint > conectar este repositório
+
+services:
+  - type: web
+    name: papufy-api
+    runtime: node
+    region: oregon
+    plan: free
+    buildCommand: npm ci && npx prisma generate && npm run build && npx prisma db push
+    startCommand: npm run start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: CORS_ORIGIN
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: UPLOAD_DIR
+        value: ./uploads

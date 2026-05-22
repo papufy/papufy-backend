@@ -1,0 +1,158 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum JobStatus {
+  OPEN
+  CLOSED
+}
+
+enum ListingType {
+  BICO
+  PRODUTO
+}
+
+enum ListingStatus {
+  OPEN
+  CLOSED
+}
+
+model User {
+  id                      String         @id @default(cuid())
+  nome                    String
+  email                   String         @unique
+  senha                   String
+  telefone                String?
+  cidade                  String?
+  uf                      String?
+  curriculoUrl            String?
+  createdAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
+  jobs                    Job[]
+  listings                Listing[]
+  certificates            Certificate[]
+  interests               JobInterest[]
+  messagesSent            Message[]
+  contractorConversations Conversation[] @relation("ContractorConversations")
+  providerConversations   Conversation[] @relation("ProviderConversations")
+}
+
+model Certificate {
+  id         String   @id @default(cuid())
+  userId     String
+  nome       String
+  arquivoUrl String
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Listing {
+  id        String         @id @default(cuid())
+  userId    String
+  tipo      ListingType
+  titulo    String
+  descricao String
+  preco     Float?
+  aCombinar Boolean        @default(false)
+  categoria String
+  status    ListingStatus  @default(OPEN)
+  cep       String?
+  cidade    String
+  bairro    String?
+  uf        String
+  telefone  String
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  images    ListingImage[]
+
+  @@index([tipo])
+  @@index([categoria])
+  @@index([cidade, uf])
+  @@index([status])
+  @@index([createdAt])
+  @@index([preco])
+}
+
+model ListingImage {
+  id        String  @id @default(cuid())
+  listingId String
+  url       String
+  ordem     Int     @default(0)
+  listing   Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+}
+
+model Job {
+  id            String         @id @default(cuid())
+  titulo        String
+  descricao     String
+  preco         Float?
+  aCombinar     Boolean        @default(false)
+  categoria     String
+  status        JobStatus      @default(OPEN)
+  cep           String?
+  cidade        String
+  bairro        String?
+  uf            String
+  telefone      String
+  userId        String
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  interests     JobInterest[]
+  conversations Conversation[]
+
+  @@index([categoria])
+  @@index([cidade, uf])
+  @@index([createdAt])
+  @@index([status])
+}
+
+model JobInterest {
+  id        String   @id @default(cuid())
+  jobId     String
+  userId    String
+  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([jobId, userId])
+}
+
+model Conversation {
+  id           String    @id @default(cuid())
+  jobId        String
+  contractorId String
+  providerId   String
+  job          Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  contractor   User      @relation("ContractorConversations", fields: [contractorId], references: [id], onDelete: Cascade)
+  provider     User      @relation("ProviderConversations", fields: [providerId], references: [id], onDelete: Cascade)
+  messages     Message[]
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([jobId, providerId])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  senderId       String
+  content        String
+  readAt         DateTime?
+  createdAt      DateTime     @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+}
