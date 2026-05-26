@@ -2,10 +2,19 @@ import type { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { authService } from "../services/auth.service";
 
+const cpfCnpjSchema = z
+  .string()
+  .min(1, "CPF ou CNPJ é obrigatório.")
+  .transform((v) => v.replace(/\D/g, ""))
+  .refine((v) => v.length === 11 || v.length === 14, {
+    message: "CPF deve ter 11 dígitos ou CNPJ 14 dígitos.",
+  });
+
 const registerSchema = z.object({
   nome: z.string().min(2, "Nome deve ter ao menos 2 caracteres."),
   email: z.string().email("E-mail inválido."),
   senha: z.string().min(8, "Senha deve ter ao menos 8 caracteres."),
+  cpfCnpj: cpfCnpjSchema,
   telefone: z.string().optional(),
   cidade: z.string().optional(),
   uf: z.string().length(2).optional(),

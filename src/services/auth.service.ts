@@ -20,6 +20,7 @@ export class AuthService {
     nome: string;
     email: string;
     senha: string;
+    cpfCnpj: string;
     telefone?: string;
     cidade?: string;
     uf?: string;
@@ -46,6 +47,25 @@ export class AuthService {
       throw error;
     }
 
+    const cpfCnpj = data.cpfCnpj.replace(/\D/g, "");
+    if (cpfCnpj.length !== 11 && cpfCnpj.length !== 14) {
+      const error = new Error("CPF ou CNPJ inválido.");
+      (error as Error & { statusCode: number }).statusCode = 400;
+      throw error;
+    }
+
+    const { data: existingDoc } = await supabase
+      .from("User")
+      .select("id")
+      .eq("cpfCnpj", cpfCnpj)
+      .maybeSingle();
+
+    if (existingDoc) {
+      const error = new Error("CPF/CNPJ já cadastrado.");
+      (error as Error & { statusCode: number }).statusCode = 409;
+      throw error;
+    }
+
     const senhaHash = await bcrypt.hash(data.senha, BCRYPT_ROUNDS);
 
     const user = assertNoError<PublicUser>(
@@ -56,6 +76,7 @@ export class AuthService {
           nome,
           email,
           senha: senhaHash,
+          cpfCnpj,
           telefone: data.telefone ? sanitizePhone(data.telefone) : null,
           cidade: data.cidade ? sanitizeText(data.cidade, 80) : null,
           uf: data.uf?.toUpperCase() ?? null,
