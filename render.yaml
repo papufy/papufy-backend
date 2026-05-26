@@ -7,7 +7,8 @@ services:
     runtime: node
     region: oregon
     plan: free
-    buildCommand: npm ci && npm run build
+    # --include=dev: NODE_ENV=production no Render omite devDependencies (tsc, @types/*)
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: npm run start
     healthCheckPath: /health
     envVars:
