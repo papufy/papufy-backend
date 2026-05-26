@@ -4,7 +4,7 @@ import helmet from "helmet";
 import path from "path";
 import { corsOptions } from "./config/cors";
 import { env } from "./config/env";
-import { prisma } from "./lib/prisma";
+import { supabase } from "./lib/supabase";
 import { authRoutes } from "./routes/auth.routes";
 import { chatRoutes } from "./routes/chat.routes";
 import { jobsRoutes } from "./routes/jobs.routes";
@@ -44,7 +44,8 @@ export function createApp() {
 
   app.get("/health/db", async (_req, res) => {
     try {
-      await prisma.$queryRaw`SELECT 1`;
+      const { error } = await supabase.from("User").select("id").limit(1);
+      if (error) throw error;
       res.json({ status: "ok", database: "connected" });
     } catch (err) {
       const message =
@@ -80,7 +81,9 @@ export function createApp() {
   app.use("/user", userRoutes);
   app.use("/jobs", jobsRoutes);
   app.use("/chat", chatRoutes);
-  app.use("/payments", paymentsRoutes);
+  if (env.paymentsEnabled) {
+    app.use("/payments", paymentsRoutes);
+  }
 
   app.use(errorHandler);
 

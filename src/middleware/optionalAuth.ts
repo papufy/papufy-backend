@@ -3,7 +3,7 @@ import { supabase } from "../lib/db";
 import { verifyToken } from "../utils/jwt";
 
 const USER_PUBLIC_SELECT =
-  "id, nome, email, telefone, cidade, uf, curriculoUrl, createdAt, updatedAt";
+  "id, nome, email, telefone, cidade, uf, curriculoUrl, cpfCnpj, asaasCustomerId, asaasWalletId, createdAt, updatedAt";
 
 export async function optionalAuth(
   req: Request,

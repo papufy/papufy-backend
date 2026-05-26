@@ -1,8 +1,9 @@
-import { BillingType } from "@prisma/client";
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { env } from "../config/env";
 import { paymentsService } from "../services/payments.service";
+import { BillingTypeValues } from "../types/enums";
+import { badRequest } from "../utils/errors";
 
 const onboardingSchema = z.object({
   name: z.string().min(3),
@@ -17,8 +18,8 @@ const onboardingSchema = z.object({
 });
 
 const checkoutSchema = z.object({
-  listingId: z.string().min(5),
-  billingType: z.nativeEnum(BillingType),
+  listingId: z.string().uuid(),
+  billingType: z.enum(BillingTypeValues),
   creditCard: z
     .object({
       holderName: z.string(),
@@ -40,11 +41,23 @@ const checkoutSchema = z.object({
     .optional(),
 });
 
+function assertPaymentsEnabled(): void {
+  if (!env.paymentsEnabled) {
+    throw badRequest(
+      "Pagamentos não configurados. Defina ASAAS_API_URL e ASAAS_API_KEY no Render."
+    );
+  }
+}
+
 export class PaymentsController {
   async onboardRecipient(req: Request, res: Response, next: NextFunction) {
     try {
+      assertPaymentsEnabled();
       const body = onboardingSchema.parse(req.body);
-      const result = await paymentsService.createRecipientAccount(req.userId!, body);
+      const result = await paymentsService.createRecipientAccount(
+        req.userId!,
+        body
+      );
       res.status(201).json(result);
     } catch (err) {
       next(err);
@@ -53,6 +66,7 @@ export class PaymentsController {
 
   async checkout(req: Request, res: Response, next: NextFunction) {
     try {
+      assertPaymentsEnabled();
       const body = checkoutSchema.parse(req.body);
       const result = await paymentsService.createCheckout(req.userId!, body);
       res.status(201).json(result);
@@ -63,6 +77,7 @@ export class PaymentsController {
 
   async transactionStatus(req: Request, res: Response, next: NextFunction) {
     try {
+      assertPaymentsEnabled();
       const id = String(req.params.id);
       const tx = await paymentsService.getTransactionStatus(id, req.userId!);
       res.json({ transaction: tx });
@@ -73,6 +88,7 @@ export class PaymentsController {
 
   async webhook(req: Request, res: Response, next: NextFunction) {
     try {
+      assertPaymentsEnabled();
       if (env.ASAAS_WEBHOOK_TOKEN) {
         const token = req.headers["asaas-access-token"]?.toString();
         if (token !== env.ASAAS_WEBHOOK_TOKEN) {
@@ -90,4 +106,3 @@ export class PaymentsController {
 }
 
 export const paymentsController = new PaymentsController();
-

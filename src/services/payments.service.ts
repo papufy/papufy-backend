@@ -1,7 +1,9 @@
-import { BillingType, ListingType, TransactionStatus } from "@prisma/client";
+import { assertNoError, newId, supabase } from "../lib/db";
+import type { Tables } from "../types/database";
 import { env } from "../config/env";
-import { prisma } from "../lib/prisma";
+import type { BillingType, TransactionStatus } from "../types/enums";
 import { sanitizePhone, sanitizeText } from "../utils/sanitize";
+import { forbidden, badRequest } from "../utils/errors";
 
 interface AsaasError {
   errors?: Array<{ description?: string }>;
@@ -26,6 +28,9 @@ interface CreateCheckoutInput {
     phone: string;
   };
 }
+
+const USER_PAYMENT_SELECT =
+  "id, nome, email, telefone, cidade, uf, curriculoUrl, cpfCnpj, asaasCustomerId, asaasWalletId, createdAt, updatedAt";
 
 async function asaasRequest<T>(
   path: string,
@@ -54,9 +59,7 @@ async function asaasRequest<T>(
       (json as AsaasError).errors?.[0]?.description
         ? (json as AsaasError).errors?.[0]?.description
         : "Erro ao comunicar com Asaas.";
-    const error = new Error(message);
-    (error as Error & { statusCode: number }).statusCode = 400;
-    throw error;
+    throw badRequest(message ?? "Erro ao comunicar com Asaas.");
   }
 
   return json as T;
@@ -83,12 +86,10 @@ export class PaymentsService {
       postalCode?: string;
     }
   ) {
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user) {
-      const error = new Error("Usuário não encontrado.");
-      (error as Error & { statusCode: number }).statusCode = 404;
-      throw error;
-    }
+    assertNoError(
+      await supabase.from("User").select("id").eq("id", userId).maybeSingle(),
+      "Usuário não encontrado."
+    );
 
     const payload = {
       name: sanitizeText(data.name, 120),
@@ -110,26 +111,18 @@ export class PaymentsService {
       }
     );
 
-    const updatedUser = await prisma.user.update({
-      where: { id: userId },
-      data: {
-        cpfCnpj: payload.cpfCnpj,
-        asaasWalletId: account.walletId,
-      },
-      select: {
-        id: true,
-        nome: true,
-        email: true,
-        telefone: true,
-        cidade: true,
-        uf: true,
-        curriculoUrl: true,
-        cpfCnpj: true,
-        asaasWalletId: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
+    const updatedUser = assertNoError(
+      await supabase
+        .from("User")
+        .update({
+          cpfCnpj: payload.cpfCnpj,
+          asaasWalletId: account.walletId,
+          updatedAt: new Date().toISOString(),
+        })
+        .eq("id", userId)
+        .select(USER_PAYMENT_SELECT)
+        .single()
+    );
 
     return {
       walletId: account.walletId,
@@ -139,16 +132,26 @@ export class PaymentsService {
   }
 
   private async ensureCustomer(userId: string) {
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user) {
-      const error = new Error("Usuário não encontrado.");
-      (error as Error & { statusCode: number }).statusCode = 404;
-      throw error;
-    }
+    type PaymentUser = {
+      id: string;
+      nome: string;
+      email: string;
+      telefone: string | null;
+      cpfCnpj: string | null;
+      asaasCustomerId: string | null;
+    };
+
+    const user = assertNoError<PaymentUser>(
+      await supabase
+        .from("User")
+        .select("id, nome, email, telefone, cpfCnpj, asaasCustomerId")
+        .eq("id", userId)
+        .maybeSingle(),
+      "Usuário não encontrado."
+    );
+
     if (!user.cpfCnpj) {
-      const error = new Error("CPF/CNPJ obrigatório para pagar.");
-      (error as Error & { statusCode: number }).statusCode = 400;
-      throw error;
+      throw badRequest("CPF/CNPJ obrigatório para pagar.");
     }
 
     if (user.asaasCustomerId) return user.asaasCustomerId;
@@ -158,50 +161,67 @@ export class PaymentsService {
       body: JSON.stringify({
         name: user.nome,
         email: user.email,
-        cpfCnpj: user.cpfCnpj.replace(/\D/g, ""),
+        cpfCnpj: String(user.cpfCnpj).replace(/\D/g, ""),
         mobilePhone: user.telefone ? sanitizePhone(user.telefone) : undefined,
       }),
     });
 
-    await prisma.user.update({
-      where: { id: userId },
-      data: { asaasCustomerId: customer.id },
-    });
+    await supabase
+      .from("User")
+      .update({
+        asaasCustomerId: customer.id,
+        updatedAt: new Date().toISOString(),
+      })
+      .eq("id", userId);
+
     return customer.id;
   }
 
   async createCheckout(contractorId: string, input: CreateCheckoutInput) {
-    const listing = await prisma.listing.findUnique({
-      where: { id: input.listingId },
-      include: { user: true },
-    });
+    type ListingCheckoutRow = {
+      id: string;
+      userId: string;
+      titulo: string;
+      tipo: string;
+      preco: number | null;
+      aCombinar: boolean;
+      status: string;
+      user: {
+        id: string;
+        nome: string;
+        email: string;
+        telefone: string | null;
+        asaasWalletId: string | null;
+      };
+    };
 
-    if (!listing) {
-      const error = new Error("Serviço não encontrado.");
-      (error as Error & { statusCode: number }).statusCode = 404;
-      throw error;
-    }
-    if (listing.listingType !== ListingType.PROFESSIONAL_PROFILE) {
-      const error = new Error("Pagamento só disponível para profissional disponível.");
-      (error as Error & { statusCode: number }).statusCode = 400;
-      throw error;
+    const listing = assertNoError<ListingCheckoutRow>(
+      await supabase
+        .from("Listing")
+        .select(
+          `id, userId, titulo, tipo, preco, aCombinar, status,
+           user:User!Listing_userId_fkey(id, nome, email, telefone, asaasWalletId)`
+        )
+        .eq("id", input.listingId)
+        .maybeSingle(),
+      "Serviço não encontrado."
+    );
+
+    const professional = listing.user;
+
+    if (listing.tipo !== "PRODUTO") {
+      throw badRequest("Pagamento só disponível para profissional disponível.");
     }
     if (listing.userId === contractorId) {
-      const error = new Error("Você não pode pagar o próprio anúncio.");
-      (error as Error & { statusCode: number }).statusCode = 400;
-      throw error;
+      throw badRequest("Você não pode pagar o próprio anúncio.");
     }
     if (listing.aCombinar || !listing.preco || listing.preco <= 0) {
-      const error = new Error("Este serviço não possui valor fixo para checkout.");
-      (error as Error & { statusCode: number }).statusCode = 400;
-      throw error;
+      throw badRequest("Este serviço não possui valor fixo para checkout.");
     }
-    if (!listing.user.asaasWalletId) {
-      const error = new Error(
+    if (!professional.asaasWalletId) {
+      throw badRequest(
         "Profissional ainda não configurou conta de recebimento."
       );
-      (error as Error & { statusCode: number }).statusCode = 400;
-      throw error;
     }
 
     const customerId = await this.ensureCustomer(contractorId);
@@ -218,13 +238,13 @@ export class PaymentsService {
       externalReference: `${listing.id}:${contractorId}`,
       split: [
         {
-          walletId: listing.user.asaasWalletId,
+          walletId: professional.asaasWalletId,
           percentualValue: 93.0,
         },
       ],
     };
 
-    if (input.billingType === BillingType.CREDIT_CARD) {
+    if (input.billingType === "CREDIT_CARD") {
       asaasPayload.creditCard = input.creditCard;
       asaasPayload.creditCardHolderInfo = input.creditCardHolderInfo;
       asaasPayload.remoteIp = "127.0.0.1";
@@ -243,7 +263,7 @@ export class PaymentsService {
 
     let pixQrCodeImage: string | undefined;
     let pixCopyPaste: string | undefined;
-    if (input.billingType === BillingType.PIX) {
+    if (input.billingType === "PIX") {
       const pix = await asaasRequest<{ encodedImage?: string; payload?: string }>(
         `/payments/${asaasPayment.id}/pixQrCode`,
         { expectedStatus: [200] }
@@ -252,34 +272,43 @@ export class PaymentsService {
       pixCopyPaste = pix.payload;
     }
 
-    const transaction = await prisma.transaction.create({
-      data: {
-        listingId: listing.id,
-        contractorId,
-        professionalId: listing.userId,
-        asaasPaymentId: asaasPayment.id,
-        amountGross,
-        platformFee,
-        professionalNet,
-        billingType: input.billingType,
-        status:
-          asaasPayment.status === "RECEIVED"
-            ? TransactionStatus.PAID
-            : TransactionStatus.PENDING,
-        pixQrCodeImage,
-        pixCopyPaste,
-        invoiceUrl: asaasPayment.invoiceUrl ?? asaasPayment.bankSlipUrl,
-        paymentLink: asaasPayment.invoiceUrl,
-        dueDate: asaasPayment.dueDate ? new Date(asaasPayment.dueDate) : undefined,
-        paidAt: asaasPayment.status === "RECEIVED" ? new Date() : undefined,
-      },
-    });
+    const status: TransactionStatus =
+      asaasPayment.status === "RECEIVED" ? "PAID" : "PENDING";
 
-    if (transaction.status === TransactionStatus.PAID) {
-      await prisma.listing.update({
-        where: { id: listing.id },
-        data: { status: "IN_PROGRESS" },
-      });
+    const transaction = assertNoError<Tables<"Transaction">>(
+      await supabase
+        .from("Transaction")
+        .insert({
+          id: newId(),
+          listingId: listing.id,
+          contractorId,
+          professionalId: listing.userId,
+          asaasPaymentId: asaasPayment.id,
+          amountGross,
+          platformFee,
+          professionalNet,
+          billingType: input.billingType,
+          status,
+          pixQrCodeImage: pixQrCodeImage ?? null,
+          pixCopyPaste: pixCopyPaste ?? null,
+          invoiceUrl: asaasPayment.invoiceUrl ?? asaasPayment.bankSlipUrl ?? null,
+          paymentLink: asaasPayment.invoiceUrl ?? null,
+          dueDate: asaasPayment.dueDate
+            ? new Date(asaasPayment.dueDate).toISOString()
+            : null,
+          paidAt:
+            status === "PAID" ? new Date().toISOString() : null,
+          updatedAt: new Date().toISOString(),
+        })
+        .select()
+        .single()
+    );
+
+    if (status === "PAID") {
+      await supabase
+        .from("Listing")
+        .update({ status: "IN_PROGRESS", updatedAt: new Date().toISOString() })
+        .eq("id", listing.id);
     }
 
     return {
@@ -292,19 +321,19 @@ export class PaymentsService {
   }
 
   async getTransactionStatus(transactionId: string, userId: string) {
-    const tx = await prisma.transaction.findUnique({
-      where: { id: transactionId },
-    });
-    if (!tx) {
-      const error = new Error("Transação não encontrada.");
-      (error as Error & { statusCode: number }).statusCode = 404;
-      throw error;
-    }
+    const tx = assertNoError<Tables<"Transaction">>(
+      await supabase
+        .from("Transaction")
+        .select("*")
+        .eq("id", transactionId)
+        .maybeSingle(),
+      "Transação não encontrada."
+    );
+
     if (tx.contractorId !== userId && tx.professionalId !== userId) {
-      const error = new Error("Sem permissão para esta transação.");
-      (error as Error & { statusCode: number }).statusCode = 403;
-      throw error;
+      throw forbidden("Sem permissão para esta transação.");
     }
+
     return tx;
   }
 
@@ -312,28 +341,46 @@ export class PaymentsService {
     const paymentId = payload.payment?.id;
     if (!paymentId) return { ignored: true };
 
-    const tx = await prisma.transaction.findFirst({
-      where: { asaasPaymentId: paymentId },
-    });
+    const { data: tx } = await supabase
+      .from("Transaction")
+      .select("*")
+      .eq("asaasPaymentId", paymentId)
+      .maybeSingle();
+
     if (!tx) return { ignored: true };
 
-    if (payload.event === "PAYMENT_RECEIVED" || payload.event === "PAYMENT_CONFIRMED") {
-      await prisma.transaction.update({
-        where: { id: tx.id },
-        data: { status: TransactionStatus.PAID, paidAt: new Date() },
-      });
-      await prisma.listing.update({
-        where: { id: tx.listingId },
-        data: { status: "IN_PROGRESS" },
-      });
+    if (
+      payload.event === "PAYMENT_RECEIVED" ||
+      payload.event === "PAYMENT_CONFIRMED"
+    ) {
+      await supabase
+        .from("Transaction")
+        .update({
+          status: "PAID",
+          paidAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        })
+        .eq("id", tx.id);
+
+      await supabase
+        .from("Listing")
+        .update({ status: "IN_PROGRESS", updatedAt: new Date().toISOString() })
+        .eq("id", tx.listingId);
+
       return { updated: true };
     }
 
-    if (payload.event === "PAYMENT_DELETED" || payload.event === "PAYMENT_OVERDUE") {
-      await prisma.transaction.update({
-        where: { id: tx.id },
-        data: { status: TransactionStatus.CANCELED },
-      });
+    if (
+      payload.event === "PAYMENT_DELETED" ||
+      payload.event === "PAYMENT_OVERDUE"
+    ) {
+      await supabase
+        .from("Transaction")
+        .update({
+          status: "CANCELED",
+          updatedAt: new Date().toISOString(),
+        })
+        .eq("id", tx.id);
       return { updated: true };
     }
 
@@ -342,4 +389,3 @@ export class PaymentsService {
 }
 
 export const paymentsService = new PaymentsService();
-

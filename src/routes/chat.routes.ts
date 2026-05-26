@@ -35,8 +35,10 @@ chatRoutes.post(
   (req, res, next) => chatController.sendMessage(req, res, next)
 );
 
-chatRoutes.post("/listings/:id/start", (req, res, next) =>
-  chatController.startListingConversation(req, res, next)
+chatRoutes.post(
+  "/listings/:id/start",
+  validateResourceId(),
+  (req, res, next) => chatController.startListingConversation(req, res, next)
 );
 
 export { chatRoutes };

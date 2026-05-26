@@ -2,19 +2,11 @@ import http from "http";
 import { createApp } from "./app";
 import { setupWebSocket } from "./chat/ws.server";
 import { env } from "./config/env";
-import { prisma } from "./lib/prisma";
 
 const app = createApp();
 const server = http.createServer(app);
 
 setupWebSocket(server);
-
-void prisma.$connect().catch((err) => {
-  console.error(
-    "[startup] Falha ao conectar no Supabase. Confira DATABASE_URL (?pgbouncer=true) e DIRECT_URL:",
-    err instanceof Error ? err.message : err
-  );
-});
 
 server.listen(env.PORT, env.HOST, () => {
   const base = env.publicBaseUrl;
@@ -24,4 +16,7 @@ server.listen(env.PORT, env.HOST, () => {
   console.log(
     `CORS: ${env.corsOrigins.join(", ")} (+ *.vercel.app em produção)`
   );
+  if (env.paymentsEnabled) {
+    console.log("Pagamentos Asaas: habilitado");
+  }
 });

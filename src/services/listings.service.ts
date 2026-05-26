@@ -293,7 +293,10 @@ export class ListingsService {
     const updated = assertNoError(
       await supabase
         .from("Listing")
-        .update({ status: "CLOSED", updatedAt: new Date().toISOString() })
+        .update({
+          status: "CLOSED" as ListingStatus,
+          updatedAt: new Date().toISOString(),
+        })
         .eq("id", listingId)
         .select(
           `*, User!Listing_userId_fkey(id, nome, cidade, uf), images:ListingImage(id, url, ordem)`

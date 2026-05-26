@@ -26,6 +26,9 @@ const envSchema = z.object({
   FRONTEND_URL: productionUrl,
   PUBLIC_BASE_URL: productionUrl.optional(),
   UPLOAD_DIR: z.string().default("./uploads"),
+  ASAAS_API_URL: z.string().url().optional(),
+  ASAAS_API_KEY: z.string().min(10).optional(),
+  ASAAS_WEBHOOK_TOKEN: z.string().min(8).optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -86,6 +89,10 @@ export function isCorsOriginAllowed(origin: string | undefined): boolean {
   return false;
 }
 
+const paymentsEnabled = Boolean(
+  config.ASAAS_API_URL && config.ASAAS_API_KEY
+);
+
 export const env = {
   ...config,
   FRONTEND_URL: frontendUrl,
@@ -93,4 +100,8 @@ export const env = {
   isProduction: true,
   uploadDir: path.resolve(config.UPLOAD_DIR),
   publicBaseUrl,
+  paymentsEnabled,
+  ASAAS_API_URL: config.ASAAS_API_URL?.replace(/\/$/, "") ?? "",
+  ASAAS_API_KEY: config.ASAAS_API_KEY ?? "",
+  ASAAS_WEBHOOK_TOKEN: config.ASAAS_WEBHOOK_TOKEN ?? "",
 };

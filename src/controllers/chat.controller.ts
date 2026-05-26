@@ -10,6 +10,10 @@ export class ChatController {
         listingId,
         req.userId!
       );
+      if (!conversation?.id) {
+        res.status(500).json({ error: "Não foi possível abrir a conversa." });
+        return;
+      }
       res.status(201).json({ conversationId: conversation.id });
     } catch (err) {
       next(err);

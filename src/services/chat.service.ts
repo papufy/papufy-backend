@@ -5,19 +5,22 @@ import { forbidden } from "../utils/errors";
 
 const CONVERSATION_SELECT = `
   *,
-  Job!Conversation_jobId_fkey(id, titulo, categoria),
+  Job:Job!Conversation_jobId_fkey(id, titulo, categoria),
+  Listing:Listing!Conversation_listingId_fkey(id, titulo, categoria),
   contractor:User!Conversation_contractorId_fkey(id, nome),
   provider:User!Conversation_providerId_fkey(id, nome)
 `;
 
 type ConversationRow = {
   id: string;
-  jobId: string;
+  jobId: string | null;
+  listingId?: string | null;
   contractorId: string;
   providerId: string;
   createdAt: string;
   updatedAt: string;
-  Job: { id: string; titulo: string; categoria: string };
+  Job?: { id: string; titulo: string; categoria: string } | null;
+  Listing?: { id: string; titulo: string; categoria: string } | null;
   contractor: { id: string; nome: string };
   provider: { id: string; nome: string };
 };
@@ -76,6 +79,55 @@ export class ChatService {
     ) as ConversationRow;
   }
 
+  async getOrCreateListingConversation(listingId: string, userId: string) {
+    const listing = assertNoError<
+      Pick<Tables<"Listing">, "id" | "userId" | "titulo" | "tipo">
+    >(
+      await supabase
+        .from("Listing")
+        .select("id, userId, titulo, tipo")
+        .eq("id", listingId)
+        .maybeSingle(),
+      "Serviço não encontrado."
+    );
+
+    if (listing.userId === userId) {
+      const error = new Error("Não é possível abrir chat consigo mesmo.");
+      (error as Error & { statusCode: number }).statusCode = 400;
+      throw error;
+    }
+
+    const isProfessional = listing.tipo === "PRODUTO";
+    const contractorId = isProfessional ? userId : listing.userId;
+    const providerId = isProfessional ? listing.userId : userId;
+
+    const { data: existing } = await supabase
+      .from("Conversation")
+      .select("id, listingId, contractorId, providerId, createdAt, updatedAt")
+      .eq("listingId", listingId)
+      .eq("contractorId", contractorId)
+      .eq("providerId", providerId)
+      .maybeSingle();
+
+    if (existing) {
+      return existing;
+    }
+
+    return assertNoError(
+      await supabase
+        .from("Conversation")
+        .insert({
+          id: newId(),
+          listingId,
+          contractorId,
+          providerId,
+          jobId: null,
+        })
+        .select("id, listingId, contractorId, providerId, createdAt, updatedAt")
+        .single()
+    );
+  }
+
   async listConversations(userId: string) {
     const conversations = assertNoError(
       await supabase
@@ -123,8 +175,8 @@ export class ChatService {
       return {
         id: c.id,
         jobId: c.jobId,
-        jobTitulo: c.Job.titulo,
-        jobCategoria: c.Job.categoria,
+        jobTitulo: c.Job?.titulo ?? c.Listing?.titulo ?? "Conversa",
+        jobCategoria: c.Job?.categoria ?? c.Listing?.categoria ?? "Geral",
         otherUser: { id: other.id, nome: other.nome },
         lastMessage: last
           ? {

@@ -1,12 +1,7 @@
-import { Prisma } from "@prisma/client";
 import type { NextFunction, Request, Response } from "express";
 import { ZodError } from "zod";
 import { env } from "../config/env";
 import { AppError } from "../utils/errors";
-
-function isPrismaError(err: unknown): err is Prisma.PrismaClientKnownRequestError {
-  return err instanceof Prisma.PrismaClientKnownRequestError;
-}
 
 export function errorHandler(
   err: unknown,
@@ -35,20 +30,13 @@ export function errorHandler(
         : 500;
 
     if (status >= 500) {
-      console.error("[api]", err.message, isPrismaError(err) ? err.code : "");
+      console.error("[api]", err.message);
     }
 
-    let message = err.message || "Erro interno do servidor.";
-    if (status >= 500 && env.isProduction) {
-      if (isPrismaError(err) || err.message.includes("Prisma")) {
-        message =
-          "Banco de dados indisponível. Verifique DATABASE_URL e DIRECT_URL no Render (Supabase).";
-      } else if (err.message.startsWith("CORS bloqueado")) {
-        message = err.message;
-      } else {
-        message = "Erro interno do servidor.";
-      }
-    }
+    const message =
+      status >= 500 && env.isProduction
+        ? "Erro interno do servidor."
+        : err.message || "Erro interno do servidor.";
 
     res.status(status).json({ error: message });
     return;

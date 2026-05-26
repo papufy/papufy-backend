@@ -1,4 +1,3 @@
-import type { ListingType } from "../types/enums";
 import type { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import {
@@ -6,13 +5,16 @@ import {
   PROFESSIONAL_CATEGORIES,
 } from "../constants/categories";
 import { listingsService } from "../services/listings.service";
+import {
+  apiListingTypeToDbTipo,
+  type ApiListingType,
+  type ListingType,
+} from "../types/enums";
 
 const listQuerySchema = z.object({
   search: z.string().optional(),
   category: z.string().optional(),
-  listingType: z
-    .enum(["JOB_VACANCY", "PROFESSIONAL_PROFILE"])
-    .optional(),
+  listingType: z.enum(["JOB_VACANCY", "PROFESSIONAL_PROFILE"]).optional(),
   tipo: z.enum(["BICO", "PRODUTO"]).optional(),
   location: z.string().optional(),
   uf: z.string().optional(),
@@ -38,17 +40,36 @@ const createListingSchema = z.object({
   telefone: z.string().min(8),
 });
 
+function resolveDbTipo(input: {
+  listingType?: ApiListingType;
+  tipo?: ListingType;
+}): ListingType | undefined {
+  return (
+    input.tipo ??
+    apiListingTypeToDbTipo(input.listingType) ??
+    undefined
+  );
+}
+
 export class ListingsController {
   async list(req: Request, res: Response, next: NextFunction) {
     try {
       const query = listQuerySchema.parse(req.query);
-      const listingType =
-        query.listingType ??
-        (query.tipo === "BICO" ? "JOB_VACANCY" : undefined) ??
-        (query.tipo === "PRODUTO" ? "PROFESSIONAL_PROFILE" : undefined);
+      const tipo = resolveDbTipo({
+        listingType: query.listingType,
+        tipo: query.tipo,
+      });
       const result = await listingsService.list({
-        ...query,
-        listingType: listingType as ListingType | undefined,
+        search: query.search,
+        category: query.category,
+        tipo,
+        location: query.location,
+        uf: query.uf,
+        cidade: query.cidade,
+        minPrice: query.minPrice,
+        maxPrice: query.maxPrice,
+        limit: query.limit,
+        offset: query.offset,
       });
       res.json(result);
     } catch (err) {
@@ -76,20 +97,20 @@ export class ListingsController {
       const imagePaths =
         files?.map((f) => `listings/${f.filename}`) ?? [];
 
-      const parsed = body;
-      const listingType =
-        parsed.listingType ??
-        (parsed.tipo === "BICO" ? "JOB_VACANCY" : undefined) ??
-        (parsed.tipo === "PRODUTO" ? "PROFESSIONAL_PROFILE" : undefined);
-      if (!listingType) {
+      const tipo = resolveDbTipo({
+        listingType: body.listingType,
+        tipo: body.tipo,
+      });
+
+      if (!tipo) {
         res.status(400).json({ error: "Tipo de anúncio é obrigatório." });
         return;
       }
 
       if (
-        listingType === "JOB_VACANCY" &&
+        tipo === "BICO" &&
         !BICO_CATEGORIES.includes(
-          parsed.categoria as (typeof BICO_CATEGORIES)[number]
+          body.categoria as (typeof BICO_CATEGORIES)[number]
         )
       ) {
         res
@@ -99,9 +120,9 @@ export class ListingsController {
       }
 
       if (
-        listingType === "PROFESSIONAL_PROFILE" &&
+        tipo === "PRODUTO" &&
         !PROFESSIONAL_CATEGORIES.includes(
-          parsed.categoria as (typeof PROFESSIONAL_CATEGORIES)[number]
+          body.categoria as (typeof PROFESSIONAL_CATEGORIES)[number]
         )
       ) {
         res
@@ -111,17 +132,17 @@ export class ListingsController {
       }
 
       const result = await listingsService.create(userId, {
-        listingType: listingType as ListingType,
-        titulo: parsed.titulo,
-        descricao: parsed.descricao,
-        preco: parsed.aCombinar ? null : parsed.preco ?? null,
-        aCombinar: parsed.aCombinar,
-        categoria: parsed.categoria,
-        cep: parsed.cep,
-        cidade: parsed.cidade,
-        bairro: parsed.bairro,
-        uf: parsed.uf,
-        telefone: parsed.telefone,
+        tipo,
+        titulo: body.titulo,
+        descricao: body.descricao,
+        preco: body.aCombinar ? null : body.preco ?? null,
+        aCombinar: body.aCombinar,
+        categoria: body.categoria,
+        cep: body.cep,
+        cidade: body.cidade,
+        bairro: body.bairro,
+        uf: body.uf,
+        telefone: body.telefone,
         imagePaths,
       });
 

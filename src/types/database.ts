@@ -49,7 +49,8 @@ export type Database = {
           contractorId: string;
           createdAt: string;
           id: string;
-          jobId: string;
+          jobId: string | null;
+          listingId: string | null;
           providerId: string;
           updatedAt: string;
         };
@@ -57,7 +58,8 @@ export type Database = {
           contractorId: string;
           createdAt?: string;
           id: string;
-          jobId: string;
+          jobId?: string | null;
+          listingId?: string | null;
           providerId: string;
           updatedAt?: string;
         };
@@ -65,7 +67,8 @@ export type Database = {
           contractorId?: string;
           createdAt?: string;
           id?: string;
-          jobId?: string;
+          jobId?: string | null;
+          listingId?: string | null;
           providerId?: string;
           updatedAt?: string;
         };
@@ -82,6 +85,13 @@ export type Database = {
             columns: ["jobId"];
             isOneToOne: false;
             referencedRelation: "Job";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "Conversation_listingId_fkey";
+            columns: ["listingId"];
+            isOneToOne: false;
+            referencedRelation: "Listing";
             referencedColumns: ["id"];
           },
           {
@@ -327,6 +337,91 @@ export type Database = {
           },
         ];
       };
+      Transaction: {
+        Row: {
+          id: string;
+          listingId: string;
+          contractorId: string;
+          professionalId: string;
+          asaasPaymentId: string | null;
+          amountGross: number;
+          platformFee: number;
+          professionalNet: number;
+          billingType: Database["public"]["Enums"]["BillingType"];
+          status: Database["public"]["Enums"]["TransactionStatus"];
+          pixQrCodeImage: string | null;
+          pixCopyPaste: string | null;
+          invoiceUrl: string | null;
+          paymentLink: string | null;
+          dueDate: string | null;
+          paidAt: string | null;
+          createdAt: string;
+          updatedAt: string;
+        };
+        Insert: {
+          id: string;
+          listingId: string;
+          contractorId: string;
+          professionalId: string;
+          asaasPaymentId?: string | null;
+          amountGross: number;
+          platformFee: number;
+          professionalNet: number;
+          billingType: Database["public"]["Enums"]["BillingType"];
+          status?: Database["public"]["Enums"]["TransactionStatus"];
+          pixQrCodeImage?: string | null;
+          pixCopyPaste?: string | null;
+          invoiceUrl?: string | null;
+          paymentLink?: string | null;
+          dueDate?: string | null;
+          paidAt?: string | null;
+          createdAt?: string;
+          updatedAt?: string;
+        };
+        Update: {
+          id?: string;
+          listingId?: string;
+          contractorId?: string;
+          professionalId?: string;
+          asaasPaymentId?: string | null;
+          amountGross?: number;
+          platformFee?: number;
+          professionalNet?: number;
+          billingType?: Database["public"]["Enums"]["BillingType"];
+          status?: Database["public"]["Enums"]["TransactionStatus"];
+          pixQrCodeImage?: string | null;
+          pixCopyPaste?: string | null;
+          invoiceUrl?: string | null;
+          paymentLink?: string | null;
+          dueDate?: string | null;
+          paidAt?: string | null;
+          createdAt?: string;
+          updatedAt?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "Transaction_listingId_fkey";
+            columns: ["listingId"];
+            isOneToOne: false;
+            referencedRelation: "Listing";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "Transaction_contractorId_fkey";
+            columns: ["contractorId"];
+            isOneToOne: false;
+            referencedRelation: "User";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "Transaction_professionalId_fkey";
+            columns: ["professionalId"];
+            isOneToOne: false;
+            referencedRelation: "User";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       User: {
         Row: {
           cidade: string | null;
@@ -339,6 +434,9 @@ export type Database = {
           telefone: string | null;
           uf: string | null;
           updatedAt: string;
+          cpfCnpj: string | null;
+          asaasCustomerId: string | null;
+          asaasWalletId: string | null;
         };
         Insert: {
           cidade?: string | null;
@@ -351,6 +449,9 @@ export type Database = {
           telefone?: string | null;
           uf?: string | null;
           updatedAt?: string;
+          cpfCnpj?: string | null;
+          asaasCustomerId?: string | null;
+          asaasWalletId?: string | null;
         };
         Update: {
           cidade?: string | null;
@@ -363,6 +464,9 @@ export type Database = {
           telefone?: string | null;
           uf?: string | null;
           updatedAt?: string;
+          cpfCnpj?: string | null;
+          asaasCustomerId?: string | null;
+          asaasWalletId?: string | null;
         };
         Relationships: [];
       };
@@ -374,9 +478,11 @@ export type Database = {
       [_ in never]: never;
     };
     Enums: {
+      BillingType: "PIX" | "CREDIT_CARD";
       JobStatus: "OPEN" | "CLOSED";
-      ListingStatus: "OPEN" | "CLOSED";
+      ListingStatus: "OPEN" | "CLOSED" | "IN_PROGRESS";
       ListingType: "BICO" | "PRODUTO";
+      TransactionStatus: "PENDING" | "PAID" | "FAILED" | "CANCELED";
     };
     CompositeTypes: {
       [_ in never]: never;

@@ -17,6 +17,9 @@ export const PROFESSIONAL_CATEGORIES = [
   "Outros Serviços",
 ] as const;
 
+/** Alias legado usado em listagens tipo PRODUTO */
+export const PRODUCT_CATEGORIES = PROFESSIONAL_CATEGORIES;
+
 /** @deprecated use BICO_CATEGORIES */
 export const JOB_CATEGORIES = BICO_CATEGORIES;
 
