@@ -61,10 +61,20 @@ const corsOrigins = buildCorsOrigins();
 
 export function isCorsOriginAllowed(origin: string | undefined): boolean {
   if (!origin) return true;
-  if (corsOrigins.includes(origin)) return true;
+  const normalized = origin.replace(/\/$/, "");
+  if (corsOrigins.includes(normalized)) return true;
   try {
-    const host = new URL(origin).hostname;
+    const host = new URL(normalized).hostname;
+    if (host === "localhost" || host === "127.0.0.1") return true;
     if (host.endsWith(".vercel.app")) return true;
+    if (host.includes("papufy")) return true;
+    for (const allowed of corsOrigins) {
+      try {
+        if (new URL(allowed).hostname === host) return true;
+      } catch {
+        /* ignore invalid allowlist entry */
+      }
+    }
   } catch {
     return false;
   }

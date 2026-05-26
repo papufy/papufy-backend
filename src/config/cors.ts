@@ -7,7 +7,7 @@ export const corsOptions: CorsOptions = {
       callback(null, true);
       return;
     }
-    callback(new Error(`CORS bloqueado para origem: ${origin}`));
+    callback(null, false);
   },
   credentials: true,
 };

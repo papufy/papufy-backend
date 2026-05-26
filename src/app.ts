@@ -3,6 +3,7 @@ import cors from "cors";
 import path from "path";
 import { corsOptions } from "./config/cors";
 import { env } from "./config/env";
+import { prisma } from "./lib/prisma";
 import { authRoutes } from "./routes/auth.routes";
 import { chatRoutes } from "./routes/chat.routes";
 import { jobsRoutes } from "./routes/jobs.routes";
@@ -30,6 +31,18 @@ export function createApp() {
 
   app.get("/health", (_req, res) => {
     res.json({ status: "ok", service: "papufy-api", env: env.NODE_ENV });
+  });
+
+  app.get("/health/db", async (_req, res) => {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      res.json({ status: "ok", database: "connected" });
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Falha ao conectar no banco.";
+      console.error("[health/db]", message);
+      res.status(503).json({ status: "error", database: "disconnected", message });
+    }
   });
 
   app.use(
