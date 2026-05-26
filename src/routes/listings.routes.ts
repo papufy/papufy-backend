@@ -21,8 +21,33 @@ listingsRoutes.get("/", (req, res, next) =>
   listingsController.list(req, res, next)
 );
 
+listingsRoutes.get("/mine", requireAuth, (req, res, next) =>
+  listingsController.listMine(req, res, next)
+);
+
 listingsRoutes.get("/:id", validateResourceId(), optionalAuth, (req, res, next) =>
   listingsController.getById(req, res, next)
+);
+
+listingsRoutes.patch(
+  "/:id/close",
+  requireAuth,
+  validateResourceId(),
+  (req, res, next) => listingsController.close(req, res, next)
+);
+
+listingsRoutes.patch(
+  "/:id/reopen",
+  requireAuth,
+  validateResourceId(),
+  (req, res, next) => listingsController.reopen(req, res, next)
+);
+
+listingsRoutes.delete(
+  "/:id",
+  requireAuth,
+  validateResourceId(),
+  (req, res, next) => listingsController.remove(req, res, next)
 );
 
 listingsRoutes.post(

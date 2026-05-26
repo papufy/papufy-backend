@@ -288,6 +288,26 @@ export class ListingsService {
     return { listing: mapListing(listing, { includePhone: true, allImages: true }) };
   }
 
+  async listMine(userId: string) {
+    const { data, error } = await supabase
+      .from("Listing")
+      .select(LISTING_LIST_SELECT)
+      .eq("userId", userId)
+      .order("createdAt", { ascending: false });
+
+    if (error) {
+      const err = new Error(error.message);
+      (err as Error & { statusCode: number }).statusCode = 500;
+      throw err;
+    }
+
+    const items = (data ?? []) as ListingRow[];
+    return {
+      listings: items.map((l) => mapListing(l, { includePhone: true })),
+      total: items.length,
+    };
+  }
+
   async close(listingId: string, userId: string) {
     await this.assertOwner(listingId, userId);
     const updated = assertNoError(
@@ -304,6 +324,43 @@ export class ListingsService {
         .single()
     ) as ListingRow;
     return { listing: mapListing(updated, { includePhone: true, allImages: true }) };
+  }
+
+  async reopen(listingId: string, userId: string) {
+    await this.assertOwner(listingId, userId);
+    const updated = assertNoError(
+      await supabase
+        .from("Listing")
+        .update({
+          status: "OPEN" as ListingStatus,
+          updatedAt: new Date().toISOString(),
+        })
+        .eq("id", listingId)
+        .select(
+          `*, User!Listing_userId_fkey(id, nome, cidade, uf), images:ListingImage(id, url, ordem)`
+        )
+        .single()
+    ) as ListingRow;
+    return { listing: mapListing(updated, { includePhone: true, allImages: true }) };
+  }
+
+  async remove(listingId: string, userId: string) {
+    await this.assertOwner(listingId, userId);
+    const { error: imgError } = await supabase
+      .from("ListingImage")
+      .delete()
+      .eq("listingId", listingId);
+    if (imgError) {
+      const err = new Error(imgError.message);
+      (err as Error & { statusCode: number }).statusCode = 500;
+      throw err;
+    }
+    const { error } = await supabase.from("Listing").delete().eq("id", listingId);
+    if (error) {
+      const err = new Error(error.message);
+      (err as Error & { statusCode: number }).statusCode = 500;
+      throw err;
+    }
   }
 }
 

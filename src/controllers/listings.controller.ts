@@ -151,6 +151,45 @@ export class ListingsController {
       next(err);
     }
   }
+
+  async listMine(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await listingsService.listMine(req.user!.id);
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async close(req: Request, res: Response, next: NextFunction) {
+    try {
+      const id = String(req.params.id);
+      const result = await listingsService.close(id, req.user!.id);
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async reopen(req: Request, res: Response, next: NextFunction) {
+    try {
+      const id = String(req.params.id);
+      const result = await listingsService.reopen(id, req.user!.id);
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async remove(req: Request, res: Response, next: NextFunction) {
+    try {
+      const id = String(req.params.id);
+      await listingsService.remove(id, req.user!.id);
+      res.status(204).send();
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 export const listingsController = new ListingsController();
