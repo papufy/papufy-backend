@@ -1,7 +1,11 @@
 import type { NextFunction, Request, Response } from "express";
-import { authUserSelect } from "../constants/userSelect";
-import { prisma } from "../lib/prisma";
+import { env } from "../config/env";
+import { assertNoError, supabase } from "../lib/db";
+import type { Tables } from "../types/database";
+import { AppError } from "../utils/errors";
 import { verifyToken } from "../utils/jwt";
+
+type PublicUser = Omit<Tables<"User">, "senha">;
 
 export async function requireAuth(
   req: Request,
@@ -9,36 +13,39 @@ export async function requireAuth(
   next: NextFunction
 ): Promise<void> {
   const header = req.headers.authorization;
-  const queryToken =
-    typeof req.query.token === "string" ? req.query.token : undefined;
 
-  const rawToken = header?.startsWith("Bearer ")
-    ? header.slice(7)
-    : queryToken;
+  let rawToken: string | undefined;
+  if (header?.startsWith("Bearer ")) {
+    rawToken = header.slice(7).trim();
+  } else if (!env.isProduction && typeof req.query.token === "string") {
+    rawToken = req.query.token.trim();
+  }
 
   if (!rawToken) {
     res.status(401).json({ error: "Token de autenticação ausente." });
     return;
   }
 
-  const token = rawToken;
-
   try {
-    const payload = verifyToken(token);
-    const user = await prisma.user.findUnique({
-      where: { id: payload.sub },
-      select: authUserSelect,
-    });
-
-    if (!user) {
-      res.status(401).json({ error: "Usuário não encontrado." });
-      return;
-    }
+    const payload = verifyToken(rawToken);
+    const user = assertNoError<PublicUser>(
+      await supabase
+        .from("User")
+        .select(
+          "id, nome, email, telefone, cidade, uf, curriculoUrl, createdAt, updatedAt"
+        )
+        .eq("id", payload.sub)
+        .maybeSingle()
+    );
 
     req.userId = user.id;
     req.user = user;
     next();
-  } catch {
+  } catch (err) {
+    if (err instanceof AppError) {
+      res.status(err.statusCode).json({ error: err.message });
+      return;
+    }
     res.status(401).json({ error: "Token inválido ou expirado." });
   }
 }

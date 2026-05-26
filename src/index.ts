@@ -21,5 +21,7 @@ server.listen(env.PORT, env.HOST, () => {
   console.log(`Papufy API listening on ${env.HOST}:${env.PORT}`);
   console.log(`Public URL: ${base}`);
   console.log(`WebSocket: ${base.replace(/^http/, "ws")}/ws`);
-  console.log(`CORS allowlist: ${env.corsOrigins.join(", ") || "(vercel.app automático)"}`);
+  console.log(
+    `CORS: ${env.corsOrigins.join(", ")} (+ *.vercel.app em produção)`
+  );
 });

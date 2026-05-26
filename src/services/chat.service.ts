@@ -1,44 +1,49 @@
-import { prisma } from "../lib/prisma";
+import { assertNoError, newId, supabase } from "../lib/db";
+import type { Tables } from "../types/database";
+import { sanitizeChatMessage } from "../utils/sanitize";
+import { forbidden } from "../utils/errors";
 
-function detectContactLeak(content: string): string | null {
-  const text = content.toLowerCase();
-  const digits = content.replace(/\D/g, "");
+const CONVERSATION_SELECT = `
+  *,
+  Job!Conversation_jobId_fkey(id, titulo, categoria),
+  contractor:User!Conversation_contractorId_fkey(id, nome),
+  provider:User!Conversation_providerId_fkey(id, nome)
+`;
 
-  // Phones: BR patterns / long digit sequences
-  const looksLikePhone =
-    digits.length >= 10 ||
-    /\b\(?\d{2}\)?\s?\d{4,5}-?\d{4}\b/.test(text) ||
-    /\b\d{4,5}-\d{4}\b/.test(text);
-
-  if (looksLikePhone) return "Não é permitido compartilhar telefone no chat.";
-
-  // Email / social / external contact
-  if (/\b\S+@\S+\.\S+\b/.test(text))
-    return "Não é permitido compartilhar e-mail no chat.";
-  if (/\b(whatsapp|wpp|wa\.me|instagram|insta|facebook|telegram|t\.me)\b/.test(text))
-    return "Não é permitido compartilhar contatos externos no chat.";
-
-  // Address heuristics (keywords + numbers)
-  const addressKeywords =
-    /\b(rua|avenida|av\.|travessa|bairro|cep|nº|numero|número|complemento|apto|apartamento|casa|condom[ií]nio)\b/;
-  if (addressKeywords.test(text) && /\d/.test(text))
-    return "Não é permitido compartilhar endereço no chat.";
-
-  return null;
-}
+type ConversationRow = {
+  id: string;
+  jobId: string;
+  contractorId: string;
+  providerId: string;
+  createdAt: string;
+  updatedAt: string;
+  Job: { id: string; titulo: string; categoria: string };
+  contractor: { id: string; nome: string };
+  provider: { id: string; nome: string };
+};
 
 export class ChatService {
-  async getOrCreateConversation(jobId: string, providerId: string) {
-    const job = await prisma.job.findUnique({
-      where: { id: jobId },
-      select: { id: true, userId: true, titulo: true },
-    });
-
-    if (!job) {
-      const error = new Error("Serviço não encontrado.");
-      (error as Error & { statusCode: number }).statusCode = 404;
-      throw error;
+  private ensureParticipant(
+    conversation: Pick<Tables<"Conversation">, "contractorId" | "providerId">,
+    userId: string
+  ): void {
+    if (
+      conversation.contractorId !== userId &&
+      conversation.providerId !== userId
+    ) {
+      throw forbidden("Acesso negado a esta conversa.");
     }
+  }
+
+  async getOrCreateConversation(jobId: string, providerId: string) {
+    const job = assertNoError<Pick<Tables<"Job">, "id" | "userId" | "titulo">>(
+      await supabase
+        .from("Job")
+        .select("id, userId, titulo")
+        .eq("id", jobId)
+        .maybeSingle(),
+      "Trabalho não encontrado."
+    );
 
     if (job.userId === providerId) {
       const error = new Error("Não é possível abrir chat consigo mesmo.");
@@ -46,110 +51,80 @@ export class ChatService {
       throw error;
     }
 
-    const conversation = await prisma.conversation.upsert({
-      where: {
-        jobId_providerId: { jobId, providerId },
-      },
-      create: {
-        jobId,
-        contractorId: job.userId,
-        providerId,
-      },
-      update: {},
-      include: {
-        job: { select: { id: true, titulo: true, categoria: true } },
-        contractor: { select: { id: true, nome: true } },
-        provider: { select: { id: true, nome: true } },
-      },
-    });
+    const { data: existing } = await supabase
+      .from("Conversation")
+      .select(CONVERSATION_SELECT)
+      .eq("jobId", jobId)
+      .eq("providerId", providerId)
+      .maybeSingle();
 
-    return conversation;
-  }
-
-  async getOrCreateListingConversation(listingId: string, userId: string) {
-    const listing = await prisma.listing.findUnique({
-      where: { id: listingId },
-      select: { id: true, userId: true, titulo: true, listingType: true },
-    });
-
-    if (!listing) {
-      const error = new Error("Serviço não encontrado.");
-      (error as Error & { statusCode: number }).statusCode = 404;
-      throw error;
+    if (existing) {
+      return existing as ConversationRow;
     }
 
-    if (listing.userId === userId) {
-      const error = new Error("Não é possível abrir chat consigo mesmo.");
-      (error as Error & { statusCode: number }).statusCode = 400;
-      throw error;
-    }
-
-    const contractorId =
-      listing.listingType === "PROFESSIONAL_PROFILE" ? userId : listing.userId;
-    const providerId =
-      listing.listingType === "PROFESSIONAL_PROFILE" ? listing.userId : userId;
-
-    const conversation = await prisma.conversation.upsert({
-      where: {
-        listingId_contractorId_providerId: { listingId, contractorId, providerId },
-      },
-      create: {
-        listingId,
-        contractorId,
-        providerId,
-      },
-      update: {},
-      include: {
-        listing: { select: { id: true, titulo: true, categoria: true, listingType: true } },
-        contractor: { select: { id: true, nome: true } },
-        provider: { select: { id: true, nome: true } },
-      },
-    });
-
-    return conversation;
+    return assertNoError(
+      await supabase
+        .from("Conversation")
+        .insert({
+          id: newId(),
+          jobId,
+          contractorId: job.userId,
+          providerId,
+        })
+        .select(CONVERSATION_SELECT)
+        .single()
+    ) as ConversationRow;
   }
 
   async listConversations(userId: string) {
-    const conversations = await prisma.conversation.findMany({
-      where: {
-        OR: [{ contractorId: userId }, { providerId: userId }],
-      },
-      orderBy: { updatedAt: "desc" },
-      include: {
-        job: { select: { id: true, titulo: true, categoria: true } },
-        listing: {
-          select: { id: true, titulo: true, categoria: true, listingType: true },
-        },
-        contractor: { select: { id: true, nome: true } },
-        provider: { select: { id: true, nome: true } },
-        messages: {
-          orderBy: { createdAt: "desc" },
-          take: 1,
-          select: {
-            id: true,
-            content: true,
-            senderId: true,
-            createdAt: true,
-            readAt: true,
-          },
-        },
-      },
-    });
+    const conversations = assertNoError(
+      await supabase
+        .from("Conversation")
+        .select(CONVERSATION_SELECT)
+        .or(`contractorId.eq.${userId},providerId.eq.${userId}`)
+        .order("updatedAt", { ascending: false })
+    ) as ConversationRow[];
+
+    const convIds = conversations.map((c) => c.id);
+    const lastByConv = new Map<
+      string,
+      {
+        id: string;
+        content: string;
+        senderId: string;
+        createdAt: string;
+        readAt: string | null;
+      }
+    >();
+
+    if (convIds.length > 0) {
+      const messages = assertNoError(
+        await supabase
+          .from("Message")
+          .select("id, conversationId, content, senderId, createdAt, readAt")
+          .in("conversationId", convIds)
+          .order("createdAt", { ascending: false })
+      );
+
+      for (const m of messages) {
+        if (!lastByConv.has(m.conversationId)) {
+          lastByConv.set(m.conversationId, m);
+        }
+      }
+    }
 
     return conversations.map((c) => {
       const other =
         c.contractorId === userId ? c.provider : c.contractor;
-      const last = c.messages[0] ?? null;
+      const last = lastByConv.get(c.id) ?? null;
       const unread =
         last && last.senderId !== userId && !last.readAt ? 1 : 0;
 
       return {
         id: c.id,
-        contextType: c.jobId ? "job" : "listing",
-        jobId: c.jobId ?? undefined,
-        listingId: c.listingId ?? undefined,
-        contextTitulo: c.job ? c.job.titulo : c.listing?.titulo ?? "Serviço",
-        contextCategoria: c.job ? c.job.categoria : c.listing?.categoria ?? "",
+        jobId: c.jobId,
+        jobTitulo: c.Job.titulo,
+        jobCategoria: c.Job.categoria,
         otherUser: { id: other.id, nome: other.nome },
         lastMessage: last
           ? {
@@ -165,117 +140,122 @@ export class ChatService {
   }
 
   async getUnreadCount(userId: string) {
-    return prisma.message.count({
-      where: {
-        readAt: null,
-        senderId: { not: userId },
-        conversation: {
-          OR: [{ contractorId: userId }, { providerId: userId }],
-        },
-      },
-    });
+    const { data: convs } = await supabase
+      .from("Conversation")
+      .select("id")
+      .or(`contractorId.eq.${userId},providerId.eq.${userId}`);
+
+    const convIds = convs?.map((c) => c.id) ?? [];
+    if (convIds.length === 0) return 0;
+
+    const { count, error } = await supabase
+      .from("Message")
+      .select("*", { count: "exact", head: true })
+      .in("conversationId", convIds)
+      .is("readAt", null)
+      .neq("senderId", userId);
+
+    if (error) {
+      const err = new Error(error.message);
+      (err as Error & { statusCode: number }).statusCode = 500;
+      throw err;
+    }
+
+    return count ?? 0;
   }
 
   async getMessages(conversationId: string, userId: string) {
-    const conversation = await prisma.conversation.findUnique({
-      where: { id: conversationId },
-    });
+    const conversation = assertNoError<
+      Pick<Tables<"Conversation">, "id" | "contractorId" | "providerId">
+    >(
+      await supabase
+        .from("Conversation")
+        .select("id, contractorId, providerId")
+        .eq("id", conversationId)
+        .maybeSingle(),
+      "Conversa não encontrada."
+    );
 
-    if (!conversation) {
-      const error = new Error("Conversa não encontrada.");
-      (error as Error & { statusCode: number }).statusCode = 404;
-      throw error;
+    this.ensureParticipant(conversation, userId);
+
+    const { error: readError } = await supabase
+      .from("Message")
+      .update({ readAt: new Date().toISOString() })
+      .eq("conversationId", conversationId)
+      .neq("senderId", userId)
+      .is("readAt", null);
+
+    if (readError) {
+      const err = new Error(readError.message);
+      (err as Error & { statusCode: number }).statusCode = 500;
+      throw err;
     }
 
-    if (
-      conversation.contractorId !== userId &&
-      conversation.providerId !== userId
-    ) {
-      const error = new Error("Acesso negado a esta conversa.");
-      (error as Error & { statusCode: number }).statusCode = 403;
-      throw error;
-    }
+    const messages = assertNoError(
+      await supabase
+        .from("Message")
+        .select("*, sender:User!Message_senderId_fkey(id, nome)")
+        .eq("conversationId", conversationId)
+        .order("createdAt", { ascending: true })
+    );
 
-    await prisma.message.updateMany({
-      where: {
-        conversationId,
-        senderId: { not: userId },
-        readAt: null,
-      },
-      data: { readAt: new Date() },
+    return messages.map((m) => {
+      const sender = m.sender as { id: string; nome: string };
+      return {
+        id: m.id,
+        conversationId: m.conversationId,
+        content: m.content,
+        senderId: m.senderId,
+        senderNome: sender.nome,
+        createdAt: m.createdAt,
+        isMine: m.senderId === userId,
+      };
     });
-
-    const messages = await prisma.message.findMany({
-      where: { conversationId },
-      orderBy: { createdAt: "asc" },
-      include: {
-        sender: { select: { id: true, nome: true } },
-      },
-    });
-
-    return messages.map((m) => ({
-      id: m.id,
-      conversationId: m.conversationId,
-      content: m.content,
-      senderId: m.senderId,
-      senderNome: m.sender.nome,
-      createdAt: m.createdAt,
-      isMine: m.senderId === userId,
-    }));
   }
 
   async sendMessage(conversationId: string, senderId: string, content: string) {
-    const trimmed = content
-      .replace(/<[^>]*>/g, "")
-      .trim()
-      .slice(0, 2000);
-    if (!trimmed) {
-      const error = new Error("Mensagem vazia.");
-      (error as Error & { statusCode: number }).statusCode = 400;
-      throw error;
+    const trimmed = sanitizeChatMessage(content);
+
+    const conversation = assertNoError<
+      Pick<Tables<"Conversation">, "id" | "contractorId" | "providerId">
+    >(
+      await supabase
+        .from("Conversation")
+        .select("id, contractorId, providerId")
+        .eq("id", conversationId)
+        .maybeSingle(),
+      "Conversa não encontrada."
+    );
+
+    this.ensureParticipant(conversation, senderId);
+
+    type MessageWithSender = Tables<"Message"> & {
+      sender: { id: string; nome: string };
+    };
+
+    const message = assertNoError<MessageWithSender>(
+      await supabase
+        .from("Message")
+        .insert({
+          id: newId(),
+          conversationId,
+          senderId,
+          content: trimmed,
+        })
+        .select("*, sender:User!Message_senderId_fkey(id, nome)")
+        .single()
+    );
+
+    const { error: updateError } = await supabase
+      .from("Conversation")
+      .update({ updatedAt: new Date().toISOString() })
+      .eq("id", conversationId);
+
+    if (updateError) {
+      const err = new Error(updateError.message);
+      (err as Error & { statusCode: number }).statusCode = 500;
+      throw err;
     }
-
-    const conversation = await prisma.conversation.findUnique({
-      where: { id: conversationId },
-    });
-
-    if (!conversation) {
-      const error = new Error("Conversa não encontrada.");
-      (error as Error & { statusCode: number }).statusCode = 404;
-      throw error;
-    }
-
-    if (
-      conversation.contractorId !== senderId &&
-      conversation.providerId !== senderId
-    ) {
-      const error = new Error("Acesso negado a esta conversa.");
-      (error as Error & { statusCode: number }).statusCode = 403;
-      throw error;
-    }
-
-    const leak = detectContactLeak(trimmed);
-    if (leak) {
-      const error = new Error(leak);
-      (error as Error & { statusCode: number }).statusCode = 400;
-      throw error;
-    }
-
-    const message = await prisma.message.create({
-      data: {
-        conversationId,
-        senderId,
-        content: trimmed,
-      },
-      include: {
-        sender: { select: { id: true, nome: true } },
-      },
-    });
-
-    await prisma.conversation.update({
-      where: { id: conversationId },
-      data: { updatedAt: new Date() },
-    });
 
     return {
       id: message.id,
@@ -289,15 +269,16 @@ export class ChatService {
   }
 
   async assertParticipant(conversationId: string, userId: string) {
-    const conversation = await prisma.conversation.findUnique({
-      where: { id: conversationId },
-    });
+    const { data: conversation } = await supabase
+      .from("Conversation")
+      .select("id, contractorId, providerId")
+      .eq("id", conversationId)
+      .maybeSingle();
 
     if (!conversation) return null;
-    if (
-      conversation.contractorId !== userId &&
-      conversation.providerId !== userId
-    ) {
+    try {
+      this.ensureParticipant(conversation, userId);
+    } catch {
       return null;
     }
     return conversation;

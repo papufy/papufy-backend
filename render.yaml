@@ -1,5 +1,5 @@
 # Render — https://github.com/papufy/papufy-backend
-# Banco: Supabase (schema já aplicado via supabase/migrations)
+# Banco: Supabase API (SUPABASE_URL + SERVICE_ROLE_KEY)
 
 services:
   - type: web
@@ -7,7 +7,7 @@ services:
     runtime: node
     region: oregon
     plan: free
-    buildCommand: npm ci --include=dev && npx prisma generate && npm run build
+    buildCommand: npm ci && npm run build
     startCommand: npm run start
     healthCheckPath: /health
     envVars:
@@ -15,9 +15,9 @@ services:
         value: production
       - key: HOST
         value: 0.0.0.0
-      - key: DATABASE_URL
+      - key: SUPABASE_URL
         sync: false
-      - key: DIRECT_URL
+      - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       - key: JWT_SECRET
         generateValue: true

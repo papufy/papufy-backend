@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import type { NextFunction, Request, Response } from "express";
 import { ZodError } from "zod";
 import { env } from "../config/env";
+import { AppError } from "../utils/errors";
 
 function isPrismaError(err: unknown): err is Prisma.PrismaClientKnownRequestError {
   return err instanceof Prisma.PrismaClientKnownRequestError;
@@ -21,9 +22,15 @@ export function errorHandler(
     return;
   }
 
+  if (err instanceof AppError) {
+    res.status(err.statusCode).json({ error: err.message });
+    return;
+  }
+
   if (err instanceof Error) {
     const status =
-      "statusCode" in err && typeof (err as { statusCode: number }).statusCode === "number"
+      "statusCode" in err &&
+      typeof (err as { statusCode: number }).statusCode === "number"
         ? (err as { statusCode: number }).statusCode
         : 500;
 

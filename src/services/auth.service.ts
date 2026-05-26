@@ -1,10 +1,19 @@
 import bcrypt from "bcryptjs";
-import { prisma } from "../lib/prisma";
+import { assertNoError, newId, supabase } from "../lib/db";
+import type { Tables } from "../types/database";
 import { sanitizeEmail, sanitizePhone, sanitizeText } from "../utils/sanitize";
 import { validatePasswordStrength } from "../utils/password";
 import { signToken } from "../utils/jwt";
 
 const BCRYPT_ROUNDS = 12;
+
+type PublicUser = Pick<
+  Tables<"User">,
+  "id" | "nome" | "email" | "telefone" | "cidade" | "uf" | "curriculoUrl" | "createdAt"
+>;
+
+const USER_PUBLIC_SELECT =
+  "id, nome, email, telefone, cidade, uf, curriculoUrl, createdAt" as const;
 
 export class AuthService {
   async register(data: {
@@ -25,7 +34,11 @@ export class AuthService {
       throw error;
     }
 
-    const existing = await prisma.user.findUnique({ where: { email } });
+    const { data: existing } = await supabase
+      .from("User")
+      .select("id")
+      .eq("email", email)
+      .maybeSingle();
 
     if (existing) {
       const error = new Error("E-mail já cadastrado.");
@@ -35,31 +48,37 @@ export class AuthService {
 
     const senhaHash = await bcrypt.hash(data.senha, BCRYPT_ROUNDS);
 
-    const user = await prisma.user.create({
-      data: {
-        nome,
-        email,
-        senha: senhaHash,
-        telefone: data.telefone ? sanitizePhone(data.telefone) : undefined,
-        cidade: data.cidade ? sanitizeText(data.cidade, 80) : undefined,
-        uf: data.uf?.toUpperCase(),
-      },
-      select: this.userSelect,
-    });
+    const user = assertNoError<PublicUser>(
+      await supabase
+        .from("User")
+        .insert({
+          id: newId(),
+          nome,
+          email,
+          senha: senhaHash,
+          telefone: data.telefone ? sanitizePhone(data.telefone) : null,
+          cidade: data.cidade ? sanitizeText(data.cidade, 80) : null,
+          uf: data.uf?.toUpperCase() ?? null,
+        })
+        .select(USER_PUBLIC_SELECT)
+        .single()
+    );
 
     const token = signToken({ sub: user.id, email: user.email });
     return { user, token };
   }
 
   async login(email: string, senha: string) {
-    const user = await prisma.user.findUnique({
-      where: { email: sanitizeEmail(email) },
-    });
+    const { data: user, error } = await supabase
+      .from("User")
+      .select("*")
+      .eq("email", sanitizeEmail(email))
+      .maybeSingle();
 
-    if (!user) {
-      const error = new Error("E-mail ou senha incorretos.");
-      (error as Error & { statusCode: number }).statusCode = 401;
-      throw error;
+    if (error || !user) {
+      const err = new Error("E-mail ou senha incorretos.");
+      (err as Error & { statusCode: number }).statusCode = 401;
+      throw err;
     }
 
     const valid = await bcrypt.compare(senha, user.senha);
@@ -77,12 +96,9 @@ export class AuthService {
         id: user.id,
         nome: user.nome,
         email: user.email,
-        cpfCnpj: user.cpfCnpj,
         telefone: user.telefone,
         cidade: user.cidade,
         uf: user.uf,
-        asaasWalletId: user.asaasWalletId,
-        asaasCustomerId: user.asaasCustomerId,
         createdAt: user.createdAt,
       },
       token,
@@ -90,16 +106,14 @@ export class AuthService {
   }
 
   async getMe(userId: string) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: this.userSelect,
-    });
-
-    if (!user) {
-      const error = new Error("Usuário não encontrado.");
-      (error as Error & { statusCode: number }).statusCode = 404;
-      throw error;
-    }
+    const user = assertNoError<PublicUser>(
+      await supabase
+        .from("User")
+        .select(USER_PUBLIC_SELECT)
+        .eq("id", userId)
+        .maybeSingle(),
+      "Usuário não encontrado."
+    );
 
     return user;
   }
@@ -115,13 +129,10 @@ export class AuthService {
       novaSenha?: string;
     }
   ) {
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-
-    if (!user) {
-      const error = new Error("Usuário não encontrado.");
-      (error as Error & { statusCode: number }).statusCode = 404;
-      throw error;
-    }
+    const user = assertNoError<Tables<"User">>(
+      await supabase.from("User").select("*").eq("id", userId).maybeSingle(),
+      "Usuário não encontrado."
+    );
 
     const updateData: {
       nome?: string;
@@ -129,7 +140,8 @@ export class AuthService {
       cidade?: string | null;
       uf?: string | null;
       senha?: string;
-    } = {};
+      updatedAt?: string;
+    } = { updatedAt: new Date().toISOString() };
 
     if (data.nome) updateData.nome = sanitizeText(data.nome, 120);
     if (data.telefone !== undefined) {
@@ -163,28 +175,17 @@ export class AuthService {
       updateData.senha = await bcrypt.hash(data.novaSenha, BCRYPT_ROUNDS);
     }
 
-    const updated = await prisma.user.update({
-      where: { id: userId },
-      data: updateData,
-      select: this.userSelect,
-    });
+    const updated = assertNoError<PublicUser>(
+      await supabase
+        .from("User")
+        .update(updateData)
+        .eq("id", userId)
+        .select(USER_PUBLIC_SELECT)
+        .single()
+    );
 
     return updated;
   }
-
-  private userSelect = {
-    id: true,
-    nome: true,
-    email: true,
-    cpfCnpj: true,
-    telefone: true,
-    cidade: true,
-    uf: true,
-    asaasWalletId: true,
-    asaasCustomerId: true,
-    curriculoUrl: true,
-    createdAt: true,
-  } as const;
 }
 
 export const authService = new AuthService();

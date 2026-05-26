@@ -1,7 +1,9 @@
 import type { NextFunction, Request, Response } from "express";
-import { authUserSelect } from "../constants/userSelect";
-import { prisma } from "../lib/prisma";
+import { supabase } from "../lib/db";
 import { verifyToken } from "../utils/jwt";
+
+const USER_PUBLIC_SELECT =
+  "id, nome, email, telefone, cidade, uf, curriculoUrl, createdAt, updatedAt";
 
 export async function optionalAuth(
   req: Request,
@@ -19,10 +21,12 @@ export async function optionalAuth(
 
   try {
     const payload = verifyToken(token);
-    const user = await prisma.user.findUnique({
-      where: { id: payload.sub },
-      select: authUserSelect,
-    });
+    const { data: user } = await supabase
+      .from("User")
+      .select(USER_PUBLIC_SELECT)
+      .eq("id", payload.sub)
+      .maybeSingle();
+
     if (user) {
       req.userId = user.id;
       req.user = user;

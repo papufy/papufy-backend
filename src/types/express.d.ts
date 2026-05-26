@@ -1,10 +1,10 @@
-import type { User } from "@prisma/client";
+import type { Tables } from "./database";
 
 declare global {
   namespace Express {
     interface Request {
       userId?: string;
-      user?: Omit<User, "senha">;
+      user?: Omit<Tables<"User">, "senha">;
     }
   }
 }

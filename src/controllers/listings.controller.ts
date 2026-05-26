@@ -1,4 +1,4 @@
-import { ListingType } from "@prisma/client";
+import type { ListingType } from "../types/enums";
 import type { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import {

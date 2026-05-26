@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
-import { JobStatus } from "@prisma/client";
+import type { JobStatus } from "../types/enums";
 import { z } from "zod";
 import { jobsService } from "../services/jobs.service";
 import { JOB_CATEGORIES } from "../constants/categories";

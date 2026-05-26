@@ -1,7 +1,9 @@
 import type { Server } from "http";
 import { WebSocketServer, type WebSocket } from "ws";
+import { env } from "../config/env";
 import { chatService } from "../services/chat.service";
 import { verifyToken } from "../utils/jwt";
+import { AppError } from "../utils/errors";
 
 interface AuthedSocket extends WebSocket {
   userId?: string;
@@ -67,7 +69,7 @@ export function setupWebSocket(server: Server) {
     const socket = rawSocket as AuthedSocket;
     socket.isAlive = true;
 
-    const url = new URL(req.url ?? "", "http://localhost");
+    const url = new URL(req.url ?? "/ws", "https://placeholder.invalid");
     const token =
       url.searchParams.get("token") ||
       req.headers["sec-websocket-protocol"]?.toString();
@@ -158,10 +160,15 @@ export function setupWebSocket(server: Server) {
           return;
         }
       } catch (err) {
-        send(socket, {
-          type: "error",
-          message: err instanceof Error ? err.message : "Erro no chat.",
-        });
+        const message =
+          err instanceof AppError
+            ? err.message
+            : env.isProduction
+              ? "Não foi possível processar a mensagem."
+              : err instanceof Error
+                ? err.message
+                : "Erro no chat.";
+        send(socket, { type: "error", message });
       }
     });
 

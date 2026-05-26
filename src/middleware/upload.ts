@@ -1,8 +1,18 @@
+import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import multer, { type FileFilterCallback } from "multer";
-import type { Request } from "express";
+import type { NextFunction, Request, Response } from "express";
 import { env } from "../config/env";
+import {
+  assertFileMagic,
+  extensionForMime,
+  type AllowedFileKind,
+} from "../utils/fileMagic";
+import { badRequest } from "../utils/errors";
+
+const PDF_MAX = 2 * 1024 * 1024;
+const IMAGE_MAX = 5 * 1024 * 1024;
 
 function ensureDir(dir: string) {
   if (!fs.existsSync(dir)) {
@@ -15,16 +25,28 @@ ensureDir(path.join(env.uploadDir, "curriculos"));
 ensureDir(path.join(env.uploadDir, "certificados"));
 ensureDir(path.join(env.uploadDir, "listings"));
 
+function rejectFile(
+  file: Express.Multer.File,
+  cb: FileFilterCallback,
+  message: string
+) {
+  cb(new Error(message));
+}
+
 const pdfFilter = (
   _req: Request,
   file: Express.Multer.File,
   cb: FileFilterCallback
 ) => {
-  if (file.mimetype === "application/pdf") {
-    cb(null, true);
+  if (file.mimetype !== "application/pdf") {
+    rejectFile(
+      file,
+      cb,
+      "Apenas application/pdf é permitido para o currículo."
+    );
     return;
   }
-  cb(new Error("Apenas arquivos PDF são permitidos para o currículo."));
+  cb(null, true);
 };
 
 const imageFilter = (
@@ -32,11 +54,16 @@ const imageFilter = (
   file: Express.Multer.File,
   cb: FileFilterCallback
 ) => {
-  if (file.mimetype.startsWith("image/")) {
-    cb(null, true);
+  const allowed = new Set(["image/jpeg", "image/png"]);
+  if (!allowed.has(file.mimetype)) {
+    rejectFile(
+      file,
+      cb,
+      "Apenas imagens JPEG ou PNG são permitidas."
+    );
     return;
   }
-  cb(new Error("Apenas imagens são permitidas."));
+  cb(null, true);
 };
 
 function storage(subfolder: string) {
@@ -47,29 +74,151 @@ function storage(subfolder: string) {
       cb(null, dest);
     },
     filename: (_req, file, cb) => {
-      const safe = file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
-      cb(null, `${Date.now()}-${safe}`);
+      const ext = extensionForMime(file.mimetype);
+      if (!ext) {
+        cb(new Error("Tipo de arquivo não suportado."), "");
+        return;
+      }
+      cb(null, `${crypto.randomUUID()}${ext}`);
     },
   });
 }
 
-export const uploadCurriculo = multer({
+function handleMulterError(
+  err: unknown,
+  _req: Request,
+  res: Response,
+  next: NextFunction
+): void {
+  if (err instanceof multer.MulterError) {
+    if (err.code === "LIMIT_FILE_SIZE") {
+      res.status(400).json({ error: "Arquivo excede o tamanho máximo permitido." });
+      return;
+    }
+    if (err.code === "LIMIT_FILE_COUNT") {
+      res.status(400).json({ error: "Número máximo de arquivos excedido." });
+      return;
+    }
+    res.status(400).json({ error: "Falha no upload do arquivo." });
+    return;
+  }
+  if (err instanceof Error) {
+    res.status(400).json({ error: err.message });
+    return;
+  }
+  next(err);
+}
+
+type MulterMiddleware = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => void;
+
+function wrapMulter(middleware: MulterMiddleware): MulterMiddleware {
+  return (req: Request, res: Response, next: NextFunction) => {
+    middleware(req, res, (err: unknown) => {
+      if (err) {
+        handleMulterError(err, req, res, next);
+        return;
+      }
+      next();
+    });
+  };
+}
+
+const curriculoMulter = multer({
   storage: storage("curriculos"),
-  limits: { fileSize: 8 * 1024 * 1024 },
+  limits: { fileSize: PDF_MAX, files: 1 },
   fileFilter: pdfFilter,
 }).single("curriculo");
 
-export const uploadCertificados = multer({
+const certificadosMulter = multer({
   storage: storage("certificados"),
-  limits: { fileSize: 6 * 1024 * 1024, files: 8 },
+  limits: { fileSize: IMAGE_MAX, files: 8 },
   fileFilter: imageFilter,
 }).array("certificados", 8);
 
-export const uploadListingImages = multer({
+const listingImagesMulter = multer({
   storage: storage("listings"),
-  limits: { fileSize: 6 * 1024 * 1024, files: 10 },
+  limits: { fileSize: IMAGE_MAX, files: 10 },
   fileFilter: imageFilter,
 }).array("imagens", 10);
+
+export const uploadCurriculo = wrapMulter(curriculoMulter);
+
+export const uploadCertificados = wrapMulter(certificadosMulter);
+
+export const uploadListingImages = wrapMulter(listingImagesMulter);
+
+export async function validateCurriculoUpload(
+  req: Request,
+  _res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const file = req.file;
+    if (!file) {
+      next(badRequest("Envie um arquivo PDF no campo curriculo."));
+      return;
+    }
+    await assertFileMagic(file.path, "pdf");
+    next();
+  } catch (err) {
+    if (req.file?.path) {
+      fs.unlink(req.file.path, () => undefined);
+    }
+    next(err instanceof Error ? err : badRequest("Arquivo inválido."));
+  }
+}
+
+export async function validateCertificadosUpload(
+  req: Request,
+  _res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+    if (!files.length) {
+      next(badRequest("Envie ao menos uma imagem no campo certificados."));
+      return;
+    }
+    for (const file of files) {
+      const kind: AllowedFileKind =
+        file.mimetype === "image/png" ? "png" : "jpeg";
+      await assertFileMagic(file.path, kind);
+    }
+    next();
+  } catch (err) {
+    const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+    for (const file of files) {
+      fs.unlink(file.path, () => undefined);
+    }
+    next(err instanceof Error ? err : badRequest("Imagem inválida."));
+  }
+}
+
+export async function validateListingImagesUpload(
+  req: Request,
+  _res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+    for (const file of files) {
+      const kind: AllowedFileKind =
+        file.mimetype === "image/png" ? "png" : "jpeg";
+      await assertFileMagic(file.path, kind);
+    }
+    next();
+  } catch (err) {
+    const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+    for (const file of files) {
+      fs.unlink(file.path, () => undefined);
+    }
+    next(err instanceof Error ? err : badRequest("Imagem inválida."));
+  }
+}
 
 export function publicFileUrl(relativePath: string): string {
   const normalized = relativePath.replace(/\\/g, "/");
