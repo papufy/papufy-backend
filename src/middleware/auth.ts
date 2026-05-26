@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
+import { authUserSelect } from "../constants/userSelect";
 import { prisma } from "../lib/prisma";
 import { verifyToken } from "../utils/jwt";
 
@@ -26,17 +27,7 @@ export async function requireAuth(
     const payload = verifyToken(token);
     const user = await prisma.user.findUnique({
       where: { id: payload.sub },
-      select: {
-        id: true,
-        nome: true,
-        email: true,
-        telefone: true,
-        cidade: true,
-        uf: true,
-        curriculoUrl: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+      select: authUserSelect,
     });
 
     if (!user) {

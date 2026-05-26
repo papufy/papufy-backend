@@ -1,5 +1,6 @@
 -- Asaas split integration + financial onboarding + listing checkout
 -- Safe to run on top of 20260322000000_papufy_initial_schema.sql
+-- Idempotent: pode rodar de novo se falhar no meio ou objetos já existirem.
 
 BEGIN;
 
@@ -28,13 +29,22 @@ ALTER TABLE "User"
 
 -- 3) Conversation supports listing context
 ALTER TABLE "Conversation"
-  ALTER COLUMN "jobId" DROP NOT NULL,
-  ADD COLUMN IF NOT EXISTS "listingId" TEXT;
+  ALTER COLUMN "jobId" DROP NOT NULL;
 
 ALTER TABLE "Conversation"
-  ADD CONSTRAINT "Conversation_listingId_fkey"
-  FOREIGN KEY ("listingId") REFERENCES "Listing"("id")
-  ON DELETE CASCADE ON UPDATE CASCADE;
+  ADD COLUMN IF NOT EXISTS "listingId" TEXT;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'Conversation_listingId_fkey'
+  ) THEN
+    ALTER TABLE "Conversation"
+      ADD CONSTRAINT "Conversation_listingId_fkey"
+      FOREIGN KEY ("listingId") REFERENCES "Listing"("id")
+      ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS "Conversation_listingId_idx"
   ON "Conversation"("listingId");
@@ -81,20 +91,40 @@ CREATE INDEX IF NOT EXISTS "Transaction_professionalId_idx"
 CREATE INDEX IF NOT EXISTS "Transaction_status_idx"
   ON "Transaction"("status");
 
-ALTER TABLE "Transaction"
-  ADD CONSTRAINT "Transaction_listingId_fkey"
-  FOREIGN KEY ("listingId") REFERENCES "Listing"("id")
-  ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'Transaction_listingId_fkey'
+  ) THEN
+    ALTER TABLE "Transaction"
+      ADD CONSTRAINT "Transaction_listingId_fkey"
+      FOREIGN KEY ("listingId") REFERENCES "Listing"("id")
+      ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;
 
-ALTER TABLE "Transaction"
-  ADD CONSTRAINT "Transaction_contractorId_fkey"
-  FOREIGN KEY ("contractorId") REFERENCES "User"("id")
-  ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'Transaction_contractorId_fkey'
+  ) THEN
+    ALTER TABLE "Transaction"
+      ADD CONSTRAINT "Transaction_contractorId_fkey"
+      FOREIGN KEY ("contractorId") REFERENCES "User"("id")
+      ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;
 
-ALTER TABLE "Transaction"
-  ADD CONSTRAINT "Transaction_professionalId_fkey"
-  FOREIGN KEY ("professionalId") REFERENCES "User"("id")
-  ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'Transaction_professionalId_fkey'
+  ) THEN
+    ALTER TABLE "Transaction"
+      ADD CONSTRAINT "Transaction_professionalId_fkey"
+      FOREIGN KEY ("professionalId") REFERENCES "User"("id")
+      ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;
 
 COMMIT;
-
