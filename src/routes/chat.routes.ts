@@ -19,4 +19,8 @@ chatRoutes.post("/conversations/:id/messages", (req, res, next) =>
   chatController.sendMessage(req, res, next)
 );
 
+chatRoutes.post("/listings/:id/start", (req, res, next) =>
+  chatController.startListingConversation(req, res, next)
+);
+
 export { chatRoutes };

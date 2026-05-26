@@ -7,6 +7,7 @@ import { authRoutes } from "./routes/auth.routes";
 import { chatRoutes } from "./routes/chat.routes";
 import { jobsRoutes } from "./routes/jobs.routes";
 import { listingsRoutes } from "./routes/listings.routes";
+import { paymentsRoutes } from "./routes/payments.routes";
 import { userRoutes } from "./routes/user.routes";
 import { errorHandler } from "./middleware/errorHandler";
 import { securityHeaders } from "./middleware/securityHeaders";
@@ -43,6 +44,7 @@ export function createApp() {
   app.use("/user", userRoutes);
   app.use("/jobs", jobsRoutes);
   app.use("/chat", chatRoutes);
+  app.use("/payments", paymentsRoutes);
 
   app.use(errorHandler);
 

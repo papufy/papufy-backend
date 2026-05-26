@@ -3,6 +3,19 @@ import { z } from "zod";
 import { chatService } from "../services/chat.service";
 
 export class ChatController {
+  async startListingConversation(req: Request, res: Response, next: NextFunction) {
+    try {
+      const listingId = String(req.params.id);
+      const conversation = await chatService.getOrCreateListingConversation(
+        listingId,
+        req.userId!
+      );
+      res.status(201).json({ conversationId: conversation.id });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async listConversations(req: Request, res: Response, next: NextFunction) {
     try {
       const conversations = await chatService.listConversations(req.userId!);

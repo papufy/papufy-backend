@@ -141,7 +141,7 @@ export class JobsService {
     });
 
     if (!job) {
-      const error = new Error("Trabalho não encontrado.");
+      const error = new Error("Serviço não encontrado.");
       (error as Error & { statusCode: number }).statusCode = 404;
       throw error;
     }
@@ -237,7 +237,7 @@ export class JobsService {
     const job = await this.assertOwner(jobId, userId);
 
     if (job.status === JobStatus.CLOSED) {
-      const error = new Error("Trabalho encerrado não pode ser editado.");
+      const error = new Error("Serviço encerrado não pode ser editado.");
       (error as Error & { statusCode: number }).statusCode = 400;
       throw error;
     }
@@ -330,19 +330,19 @@ export class JobsService {
     const job = await prisma.job.findUnique({ where: { id: jobId } });
 
     if (!job) {
-      const error = new Error("Trabalho não encontrado.");
+      const error = new Error("Serviço não encontrado.");
       (error as Error & { statusCode: number }).statusCode = 404;
       throw error;
     }
 
     if (job.status === JobStatus.CLOSED) {
-      const error = new Error("Este trabalho já foi encerrado.");
+      const error = new Error("Este serviço já foi encerrado.");
       (error as Error & { statusCode: number }).statusCode = 400;
       throw error;
     }
 
     if (job.userId === userId) {
-      const error = new Error("Você não pode demonstrar interesse no seu próprio trabalho.");
+      const error = new Error("Você não pode demonstrar interesse no seu próprio serviço.");
       (error as Error & { statusCode: number }).statusCode = 400;
       throw error;
     }
@@ -368,7 +368,7 @@ export class JobsService {
       await chatService.sendMessage(
         conversation.id,
         userId,
-        `Olá! Tenho interesse no trabalho "${job.titulo}". Podemos conversar?`
+        `Olá! Tenho interesse no serviço "${job.titulo}". Podemos conversar?`
       );
     }
 
@@ -392,13 +392,13 @@ export class JobsService {
     const job = await prisma.job.findUnique({ where: { id: jobId } });
 
     if (!job) {
-      const error = new Error("Trabalho não encontrado.");
+      const error = new Error("Serviço não encontrado.");
       (error as Error & { statusCode: number }).statusCode = 404;
       throw error;
     }
 
     if (job.userId !== userId) {
-      const error = new Error("Sem permissão para este trabalho.");
+      const error = new Error("Sem permissão para este serviço.");
       (error as Error & { statusCode: number }).statusCode = 403;
       throw error;
     }

@@ -1,0 +1,22 @@
+import { Router } from "express";
+import { paymentsController } from "../controllers/payments.controller";
+import { requireAuth } from "../middleware/auth";
+
+export const paymentsRoutes = Router();
+
+paymentsRoutes.post("/webhook", (req, res, next) =>
+  paymentsController.webhook(req, res, next)
+);
+
+paymentsRoutes.post("/onboarding-account", requireAuth, (req, res, next) =>
+  paymentsController.onboardRecipient(req, res, next)
+);
+
+paymentsRoutes.post("/checkout", requireAuth, (req, res, next) =>
+  paymentsController.checkout(req, res, next)
+);
+
+paymentsRoutes.get("/transactions/:id/status", requireAuth, (req, res, next) =>
+  paymentsController.transactionStatus(req, res, next)
+);
+

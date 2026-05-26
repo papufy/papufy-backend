@@ -25,6 +25,9 @@ const envSchema = z.object({
   CORS_ORIGIN: z.string().optional(),
   FRONTEND_URL: z.string().url(),
   PUBLIC_BASE_URL: z.string().url(),
+  ASAAS_API_URL: z.string().url().default("https://sandbox.asaas.com/v3"),
+  ASAAS_API_KEY: z.string().min(10),
+  ASAAS_WEBHOOK_TOKEN: z.string().optional(),
   UPLOAD_DIR: z.string().default("./uploads"),
 });
 

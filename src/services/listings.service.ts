@@ -2,7 +2,7 @@ import { ListingStatus, ListingType, Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import {
   BICO_CATEGORIES,
-  PRODUCT_CATEGORIES,
+  PROFESSIONAL_CATEGORIES,
 } from "../constants/categories";
 import { sanitizePhone, sanitizeText } from "../utils/sanitize";
 import { publicFileUrl } from "../middleware/upload";
@@ -10,7 +10,7 @@ import { publicFileUrl } from "../middleware/upload";
 export interface ListListingsFilters {
   search?: string;
   category?: string;
-  tipo?: ListingType;
+  listingType?: ListingType;
   uf?: string;
   cidade?: string;
   location?: string;
@@ -32,7 +32,7 @@ function mapListing(
   listing: {
     id: string;
     userId: string;
-    tipo: ListingType;
+    listingType: ListingType;
     titulo: string;
     descricao: string;
     preco: number | null;
@@ -53,7 +53,7 @@ function mapListing(
     };
     images?: { id: string; url: string; ordem: number }[];
   },
-  options?: { includePhone?: boolean }
+  options?: { includePhone?: boolean; includeSensitiveAddress?: boolean }
 ) {
   const sortedImages = [...(listing.images ?? [])].sort(
     (a, b) => a.ordem - b.ordem
@@ -62,16 +62,16 @@ function mapListing(
   return {
     id: listing.id,
     userId: listing.userId,
-    tipo: listing.tipo,
+    listingType: listing.listingType,
     titulo: listing.titulo,
     descricao: listing.descricao,
     preco: listing.preco,
     aCombinar: listing.aCombinar,
     categoria: listing.categoria,
     status: listing.status,
-    cep: listing.cep,
+    cep: options?.includeSensitiveAddress ? listing.cep : undefined,
     cidade: listing.cidade,
-    bairro: listing.bairro,
+    bairro: options?.includeSensitiveAddress ? listing.bairro : undefined,
     uf: listing.uf,
     telefone: options?.includePhone ? listing.telefone : undefined,
     createdAt: listing.createdAt,
@@ -97,8 +97,8 @@ export class ListingsService {
       status: filters.status ?? ListingStatus.OPEN,
     };
 
-    if (filters.tipo) {
-      where.tipo = filters.tipo;
+    if (filters.listingType) {
+      where.listingType = filters.listingType;
     }
 
     if (filters.category) {
@@ -193,11 +193,26 @@ export class ListingsService {
     }
 
     const isOwner = viewerId === listing.userId;
+    const paidUnlock = viewerId
+      ? await prisma.transaction.findFirst({
+          where: {
+            listingId: id,
+            contractorId: viewerId,
+            status: "PAID",
+          },
+          select: { id: true },
+        })
+      : null;
+    const canSeeSensitive = isOwner || !!paidUnlock;
 
     return {
       listing: {
-        ...mapListing(listing, { includePhone: isOwner }),
+        ...mapListing(listing, {
+          includePhone: canSeeSensitive,
+          includeSensitiveAddress: canSeeSensitive,
+        }),
         isOwner,
+        contactUnlocked: canSeeSensitive,
       },
     };
   }
@@ -205,7 +220,7 @@ export class ListingsService {
   async create(
     userId: string,
     data: {
-      tipo: ListingType;
+      listingType: ListingType;
       titulo: string;
       descricao: string;
       preco?: number | null;
@@ -220,8 +235,8 @@ export class ListingsService {
     }
   ) {
     const categories: readonly string[] =
-      data.tipo === ListingType.PRODUTO
-        ? PRODUCT_CATEGORIES
+      data.listingType === ListingType.PROFESSIONAL_PROFILE
+        ? PROFESSIONAL_CATEGORIES
         : BICO_CATEGORIES;
 
     if (!categories.includes(data.categoria)) {
@@ -231,7 +246,7 @@ export class ListingsService {
     const listing = await prisma.listing.create({
       data: {
         userId,
-        tipo: data.tipo,
+        listingType: data.listingType,
         titulo: sanitizeText(data.titulo, 120),
         descricao: sanitizeText(data.descricao, 4000),
         preco: data.aCombinar ? null : data.preco ?? null,

@@ -1,12 +1,18 @@
 import { ListingType } from "@prisma/client";
 import type { Request, Response, NextFunction } from "express";
 import { z } from "zod";
-import { BICO_CATEGORIES, PRODUCT_CATEGORIES } from "../constants/categories";
+import {
+  BICO_CATEGORIES,
+  PROFESSIONAL_CATEGORIES,
+} from "../constants/categories";
 import { listingsService } from "../services/listings.service";
 
 const listQuerySchema = z.object({
   search: z.string().optional(),
   category: z.string().optional(),
+  listingType: z
+    .enum(["JOB_VACANCY", "PROFESSIONAL_PROFILE"])
+    .optional(),
   tipo: z.enum(["BICO", "PRODUTO"]).optional(),
   location: z.string().optional(),
   uf: z.string().optional(),
@@ -18,7 +24,8 @@ const listQuerySchema = z.object({
 });
 
 const createListingSchema = z.object({
-  tipo: z.enum(["BICO", "PRODUTO"]),
+  listingType: z.enum(["JOB_VACANCY", "PROFESSIONAL_PROFILE"]).optional(),
+  tipo: z.enum(["BICO", "PRODUTO"]).optional(),
   titulo: z.string().min(5).max(120),
   descricao: z.string().min(20).max(4000),
   preco: z.coerce.number().positive().optional().nullable(),
@@ -35,9 +42,13 @@ export class ListingsController {
   async list(req: Request, res: Response, next: NextFunction) {
     try {
       const query = listQuerySchema.parse(req.query);
+      const listingType =
+        query.listingType ??
+        (query.tipo === "BICO" ? "JOB_VACANCY" : undefined) ??
+        (query.tipo === "PRODUTO" ? "PROFESSIONAL_PROFILE" : undefined);
       const result = await listingsService.list({
         ...query,
-        tipo: query.tipo as ListingType | undefined,
+        listingType: listingType as ListingType | undefined,
       });
       res.json(result);
     } catch (err) {
@@ -66,27 +77,41 @@ export class ListingsController {
         files?.map((f) => `listings/${f.filename}`) ?? [];
 
       const parsed = body;
-
-      if (
-        parsed.tipo === "BICO" &&
-        !BICO_CATEGORIES.includes(parsed.categoria as (typeof BICO_CATEGORIES)[number])
-      ) {
-        res.status(400).json({ error: "Categoria inválida para bico/serviço." });
+      const listingType =
+        parsed.listingType ??
+        (parsed.tipo === "BICO" ? "JOB_VACANCY" : undefined) ??
+        (parsed.tipo === "PRODUTO" ? "PROFESSIONAL_PROFILE" : undefined);
+      if (!listingType) {
+        res.status(400).json({ error: "Tipo de anúncio é obrigatório." });
         return;
       }
 
       if (
-        parsed.tipo === "PRODUTO" &&
-        !PRODUCT_CATEGORIES.includes(
-          parsed.categoria as (typeof PRODUCT_CATEGORIES)[number]
+        listingType === "JOB_VACANCY" &&
+        !BICO_CATEGORIES.includes(
+          parsed.categoria as (typeof BICO_CATEGORIES)[number]
         )
       ) {
-        res.status(400).json({ error: "Categoria inválida para produto." });
+        res
+          .status(400)
+          .json({ error: "Categoria inválida para pedido de serviço." });
+        return;
+      }
+
+      if (
+        listingType === "PROFESSIONAL_PROFILE" &&
+        !PROFESSIONAL_CATEGORIES.includes(
+          parsed.categoria as (typeof PROFESSIONAL_CATEGORIES)[number]
+        )
+      ) {
+        res
+          .status(400)
+          .json({ error: "Categoria inválida para profissional disponível." });
         return;
       }
 
       const result = await listingsService.create(userId, {
-        tipo: parsed.tipo as ListingType,
+        listingType: listingType as ListingType,
         titulo: parsed.titulo,
         descricao: parsed.descricao,
         preco: parsed.aCombinar ? null : parsed.preco ?? null,

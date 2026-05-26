@@ -14,13 +14,26 @@ enum JobStatus {
 }
 
 enum ListingType {
-  BICO
-  PRODUTO
+  JOB_VACANCY          @map("BICO")
+  PROFESSIONAL_PROFILE @map("PRODUTO")
 }
 
 enum ListingStatus {
   OPEN
+  IN_PROGRESS
   CLOSED
+}
+
+enum TransactionStatus {
+  PENDING
+  PAID
+  FAILED
+  CANCELED
+}
+
+enum BillingType {
+  PIX
+  CREDIT_CARD
 }
 
 model User {
@@ -28,9 +41,12 @@ model User {
   nome                    String
   email                   String         @unique
   senha                   String
+  cpfCnpj                 String?
   telefone                String?
   cidade                  String?
   uf                      String?
+  asaasCustomerId         String?
+  asaasWalletId           String?
   curriculoUrl            String?
   createdAt               DateTime       @default(now())
   updatedAt               DateTime       @updatedAt
@@ -39,6 +55,8 @@ model User {
   certificates            Certificate[]
   interests               JobInterest[]
   messagesSent            Message[]
+  contractorTransactions  Transaction[]  @relation("ContractorTransactions")
+  professionalTransactions Transaction[] @relation("ProfessionalTransactions")
   contractorConversations Conversation[] @relation("ContractorConversations")
   providerConversations   Conversation[] @relation("ProviderConversations")
 }
@@ -57,7 +75,7 @@ model Certificate {
 model Listing {
   id        String         @id @default(cuid())
   userId    String
-  tipo      ListingType
+  listingType ListingType  @map("tipo")
   titulo    String
   descricao String
   preco     Float?
@@ -73,8 +91,10 @@ model Listing {
   updatedAt DateTime       @updatedAt
   user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   images    ListingImage[]
+  conversations Conversation[]
+  transactions Transaction[]
 
-  @@index([tipo])
+  @@index([listingType])
   @@index([categoria])
   @@index([cidade, uf])
   @@index([status])
@@ -131,10 +151,12 @@ model JobInterest {
 
 model Conversation {
   id           String    @id @default(cuid())
-  jobId        String
+  jobId        String?
+  listingId    String?
   contractorId String
   providerId   String
-  job          Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  job          Job?      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  listing      Listing?  @relation(fields: [listingId], references: [id], onDelete: Cascade)
   contractor   User      @relation("ContractorConversations", fields: [contractorId], references: [id], onDelete: Cascade)
   provider     User      @relation("ProviderConversations", fields: [providerId], references: [id], onDelete: Cascade)
   messages     Message[]
@@ -142,6 +164,38 @@ model Conversation {
   updatedAt    DateTime  @updatedAt
 
   @@unique([jobId, providerId])
+  @@unique([listingId, contractorId, providerId])
+  @@index([listingId])
+}
+
+model Transaction {
+  id               String            @id @default(cuid())
+  listingId        String
+  contractorId     String
+  professionalId   String
+  asaasPaymentId   String?           @unique
+  amountGross      Float
+  platformFee      Float
+  professionalNet  Float
+  billingType      BillingType
+  status           TransactionStatus @default(PENDING)
+  pixQrCodeImage   String?
+  pixCopyPaste     String?
+  invoiceUrl       String?
+  paymentLink      String?
+  dueDate          DateTime?
+  paidAt           DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  listing          Listing           @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  contractor       User              @relation("ContractorTransactions", fields: [contractorId], references: [id], onDelete: Cascade)
+  professional     User              @relation("ProfessionalTransactions", fields: [professionalId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+  @@index([contractorId])
+  @@index([professionalId])
+  @@index([status])
 }
 
 model Message {

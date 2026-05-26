@@ -1,5 +1,32 @@
 import { prisma } from "../lib/prisma";
 
+function detectContactLeak(content: string): string | null {
+  const text = content.toLowerCase();
+  const digits = content.replace(/\D/g, "");
+
+  // Phones: BR patterns / long digit sequences
+  const looksLikePhone =
+    digits.length >= 10 ||
+    /\b\(?\d{2}\)?\s?\d{4,5}-?\d{4}\b/.test(text) ||
+    /\b\d{4,5}-\d{4}\b/.test(text);
+
+  if (looksLikePhone) return "Não é permitido compartilhar telefone no chat.";
+
+  // Email / social / external contact
+  if (/\b\S+@\S+\.\S+\b/.test(text))
+    return "Não é permitido compartilhar e-mail no chat.";
+  if (/\b(whatsapp|wpp|wa\.me|instagram|insta|facebook|telegram|t\.me)\b/.test(text))
+    return "Não é permitido compartilhar contatos externos no chat.";
+
+  // Address heuristics (keywords + numbers)
+  const addressKeywords =
+    /\b(rua|avenida|av\.|travessa|bairro|cep|nº|numero|número|complemento|apto|apartamento|casa|condom[ií]nio)\b/;
+  if (addressKeywords.test(text) && /\d/.test(text))
+    return "Não é permitido compartilhar endereço no chat.";
+
+  return null;
+}
+
 export class ChatService {
   async getOrCreateConversation(jobId: string, providerId: string) {
     const job = await prisma.job.findUnique({
@@ -8,7 +35,7 @@ export class ChatService {
     });
 
     if (!job) {
-      const error = new Error("Trabalho não encontrado.");
+      const error = new Error("Serviço não encontrado.");
       (error as Error & { statusCode: number }).statusCode = 404;
       throw error;
     }
@@ -39,6 +66,49 @@ export class ChatService {
     return conversation;
   }
 
+  async getOrCreateListingConversation(listingId: string, userId: string) {
+    const listing = await prisma.listing.findUnique({
+      where: { id: listingId },
+      select: { id: true, userId: true, titulo: true, listingType: true },
+    });
+
+    if (!listing) {
+      const error = new Error("Serviço não encontrado.");
+      (error as Error & { statusCode: number }).statusCode = 404;
+      throw error;
+    }
+
+    if (listing.userId === userId) {
+      const error = new Error("Não é possível abrir chat consigo mesmo.");
+      (error as Error & { statusCode: number }).statusCode = 400;
+      throw error;
+    }
+
+    const contractorId =
+      listing.listingType === "PROFESSIONAL_PROFILE" ? userId : listing.userId;
+    const providerId =
+      listing.listingType === "PROFESSIONAL_PROFILE" ? listing.userId : userId;
+
+    const conversation = await prisma.conversation.upsert({
+      where: {
+        listingId_contractorId_providerId: { listingId, contractorId, providerId },
+      },
+      create: {
+        listingId,
+        contractorId,
+        providerId,
+      },
+      update: {},
+      include: {
+        listing: { select: { id: true, titulo: true, categoria: true, listingType: true } },
+        contractor: { select: { id: true, nome: true } },
+        provider: { select: { id: true, nome: true } },
+      },
+    });
+
+    return conversation;
+  }
+
   async listConversations(userId: string) {
     const conversations = await prisma.conversation.findMany({
       where: {
@@ -47,6 +117,9 @@ export class ChatService {
       orderBy: { updatedAt: "desc" },
       include: {
         job: { select: { id: true, titulo: true, categoria: true } },
+        listing: {
+          select: { id: true, titulo: true, categoria: true, listingType: true },
+        },
         contractor: { select: { id: true, nome: true } },
         provider: { select: { id: true, nome: true } },
         messages: {
@@ -72,9 +145,11 @@ export class ChatService {
 
       return {
         id: c.id,
-        jobId: c.jobId,
-        jobTitulo: c.job.titulo,
-        jobCategoria: c.job.categoria,
+        contextType: c.jobId ? "job" : "listing",
+        jobId: c.jobId ?? undefined,
+        listingId: c.listingId ?? undefined,
+        contextTitulo: c.job ? c.job.titulo : c.listing?.titulo ?? "Serviço",
+        contextCategoria: c.job ? c.job.categoria : c.listing?.categoria ?? "",
         otherUser: { id: other.id, nome: other.nome },
         lastMessage: last
           ? {
@@ -176,6 +251,13 @@ export class ChatService {
     ) {
       const error = new Error("Acesso negado a esta conversa.");
       (error as Error & { statusCode: number }).statusCode = 403;
+      throw error;
+    }
+
+    const leak = detectContactLeak(trimmed);
+    if (leak) {
+      const error = new Error(leak);
+      (error as Error & { statusCode: number }).statusCode = 400;
       throw error;
     }
 

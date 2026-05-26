@@ -7,22 +7,22 @@ export const BICO_CATEGORIES = [
   "Eventos",
 ] as const;
 
-export const PRODUCT_CATEGORIES = [
-  "Eletrônicos",
-  "Móveis e Decoração",
-  "Veículos",
-  "Moda e Beleza",
-  "Esportes",
-  "Casa e Jardim",
-  "Outros",
+export const PROFESSIONAL_CATEGORIES = [
+  "Eletricista",
+  "Encanador",
+  "Pintor",
+  "Diarista",
+  "Designer",
+  "Professor Particular",
+  "Outros Serviços",
 ] as const;
 
 /** @deprecated use BICO_CATEGORIES */
 export const JOB_CATEGORIES = BICO_CATEGORIES;
 
-export type BicoCategory = (typeof BICO_CATEGORIES)[number];
-export type ProductCategory = (typeof PRODUCT_CATEGORIES)[number];
-export type JobCategory = BicoCategory;
+export type WorkCategory = (typeof BICO_CATEGORIES)[number];
+export type ProfessionalCategory = (typeof PROFESSIONAL_CATEGORIES)[number];
+export type JobCategory = WorkCategory;
 
 export const BRAZIL_STATES = [
   "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA",
