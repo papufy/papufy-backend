@@ -59,15 +59,38 @@ function resolvePublicBaseUrl(): string {
   process.exit(1);
 }
 
+/** Domínio customizado de produção (além de FRONTEND_URL / CORS_ORIGIN no Render). */
+const PRODUCTION_SITE_ORIGINS = [
+  "https://papufy.com",
+  "https://www.papufy.com",
+];
+
+function expandOriginVariants(origin: string): string[] {
+  const clean = origin.replace(/\/$/, "");
+  const variants = new Set<string>([clean]);
+  try {
+    const { protocol, hostname } = new URL(clean);
+    if (hostname.startsWith("www.")) {
+      variants.add(`${protocol}//${hostname.slice(4)}`);
+    } else {
+      variants.add(`${protocol}//www.${hostname}`);
+    }
+  } catch {
+    /* URL inválida — mantém só o valor bruto */
+  }
+  return [...variants];
+}
+
 function buildCorsOrigins(frontendUrl: string): string[] {
   const origins = new Set<string>();
-  origins.add(frontendUrl);
 
-  if (config.CORS_ORIGIN) {
-    config.CORS_ORIGIN.split(",")
-      .map((o) => o.trim())
-      .filter(Boolean)
-      .forEach((o) => origins.add(o.replace(/\/$/, "")));
+  for (const origin of [
+    frontendUrl,
+    ...(config.CORS_ORIGIN?.split(",").map((o) => o.trim()).filter(Boolean) ??
+      []),
+    ...PRODUCTION_SITE_ORIGINS,
+  ]) {
+    expandOriginVariants(origin).forEach((o) => origins.add(o));
   }
 
   return [...origins];
@@ -79,10 +102,19 @@ const corsOrigins = buildCorsOrigins(frontendUrl);
 
 export function isCorsOriginAllowed(origin: string | undefined): boolean {
   if (!origin) return true;
-  if (corsOrigins.includes(origin)) return true;
+  const normalized = origin.replace(/\/$/, "");
+  if (corsOrigins.includes(normalized)) return true;
   try {
-    const host = new URL(origin).hostname;
+    const host = new URL(normalized).hostname;
     if (host.endsWith(".vercel.app")) return true;
+    if (host === "papufy.com" || host === "www.papufy.com") return true;
+    for (const allowed of corsOrigins) {
+      const allowedHost = new URL(allowed).hostname;
+      if (host === allowedHost) return true;
+      if (host === `www.${allowedHost}` || `www.${host}` === allowedHost) {
+        return true;
+      }
+    }
   } catch {
     return false;
   }

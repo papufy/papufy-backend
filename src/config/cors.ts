@@ -7,7 +7,12 @@ export const corsOptions: CorsOptions = {
       callback(null, true);
       return;
     }
+    if (origin) {
+      console.warn("[cors] Origin bloqueada:", origin);
+    }
     callback(null, false);
   },
   credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
 };
