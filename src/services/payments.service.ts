@@ -11,18 +11,17 @@ import { env } from "../config/env";
 import type { BillingType, TransactionStatus } from "../types/enums";
 import { normalizeListingType } from "../types/enums";
 import { sanitizePhone, sanitizeText } from "../utils/sanitize";
-import { forbidden, badRequest } from "../utils/errors";
+import { PaymentProfileIncompleteError } from "../errors/paymentProfile";
+import { AppError, forbidden, badRequest } from "../utils/errors";
 import { parseProposalFields } from "../utils/messageProposal";
 import {
   buildAsaasSplit,
   normalizeCheckoutPaymentInput,
   type CheckoutPaymentInput,
+  type PaymentProfilePatch,
 } from "../utils/paymentCheckout";
 import { publicFileUrl } from "../middleware/upload";
-import {
-  ensureAsaasCustomer,
-  ensureAsaasRecipientWallet,
-} from "./asaasOnboarding.service";
+import { ensureAsaasRecipientWallet } from "./asaasOnboarding.service";
 import { chatService } from "./chat.service";
 
 interface CreateCheckoutInput extends CheckoutPaymentInput {
@@ -34,6 +33,18 @@ type ProposalCheckoutInput = CheckoutPaymentInput;
 const USER_PAYMENT_SELECT =
   "id, nome, email, telefone, cidade, uf, curriculoUrl, cpfCnpj, asaasCustomerId, asaasWalletId, createdAt, updatedAt";
 
+const USER_ASAAS_CUSTOMER_SELECT =
+  "id, nome, email, telefone, cpfCnpj, asaasCustomerId";
+
+type AsaasCustomerUserRow = {
+  id: string;
+  nome: string;
+  email: string;
+  telefone: string | null;
+  cpfCnpj: string | null;
+  asaasCustomerId: string | null;
+};
+
 function buildDueDate(daysAhead = 1): string {
   const date = new Date();
   date.setDate(date.getDate() + daysAhead);
@@ -41,8 +52,143 @@ function buildDueDate(daysAhead = 1): string {
 }
 
 export class PaymentsService {
+  private digitsOnly(value: string): string {
+    return value.replace(/\D/g, "");
+  }
+
+  /**
+   * Atualiza dados do pagador no User (Supabase / schema Prisma) antes do primeiro checkout.
+   */
+  private async applyPayerProfilePatch(
+    userId: string,
+    patch?: PaymentProfilePatch
+  ): Promise<AsaasCustomerUserRow> {
+    if (!patch) {
+      return assertNoError<AsaasCustomerUserRow>(
+        await supabase
+          .from("User")
+          .select(USER_ASAAS_CUSTOMER_SELECT)
+          .eq("id", userId)
+          .maybeSingle(),
+        "Usuário não encontrado."
+      );
+    }
+
+    const update: {
+      updatedAt: string;
+      cpfCnpj?: string;
+      telefone?: string | null;
+    } = {
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (patch.cpfCnpj !== undefined) {
+      const doc = this.digitsOnly(patch.cpfCnpj);
+      if (doc.length !== 11 && doc.length !== 14) {
+        throw badRequest("CPF ou CNPJ inválido. Verifique os dígitos informados.");
+      }
+      update.cpfCnpj = doc;
+    }
+
+    if (patch.telefone !== undefined) {
+      const phone = this.digitsOnly(patch.telefone);
+      if (phone.length < 10) {
+        throw badRequest("Telefone inválido. Informe DDD + número.");
+      }
+      update.telefone = sanitizePhone(patch.telefone);
+    }
+
+    if (Object.keys(update).length <= 1) {
+      return this.applyPayerProfilePatch(userId);
+    }
+
+    return assertNoError<AsaasCustomerUserRow>(
+      await supabase
+        .from("User")
+        .update(update)
+        .eq("id", userId)
+        .select(USER_ASAAS_CUSTOMER_SELECT)
+        .single(),
+      "Usuário não encontrado."
+    );
+  }
+
+  /**
+   * Garante que o pagador exista no Asaas (POST /v3/customers) e retorna `cus_...`.
+   * Persiste `asaasCustomerId` na tabela User na primeira cobrança (Pix ou cartão).
+   */
+  private async ensureAsaasCustomer(
+    userId: string,
+    patch?: PaymentProfilePatch
+  ): Promise<string> {
+    if (!env.paymentsEnabled) {
+      throw badRequest(
+        "Pagamentos não configurados. Defina ASAAS_API_URL e ASAAS_API_KEY no Render."
+      );
+    }
+
+    try {
+      const user = await this.applyPayerProfilePatch(userId, patch);
+
+      const cpfCnpj = user.cpfCnpj ? this.digitsOnly(user.cpfCnpj) : "";
+      if (cpfCnpj.length < 11) {
+        throw new PaymentProfileIncompleteError(
+          ["cpfCnpj"],
+          "payer",
+          "Informe CPF ou CNPJ válido para concluir o pagamento."
+        );
+      }
+
+      const existingCustomerId = user.asaasCustomerId?.trim();
+      if (existingCustomerId) {
+        return existingCustomerId;
+      }
+
+      const phone = user.telefone ? sanitizePhone(user.telefone) : undefined;
+
+      const customer = await asaasRequest<{ id: string }>("/customers", {
+        method: "POST",
+        body: JSON.stringify({
+          name: user.nome,
+          email: user.email,
+          cpfCnpj,
+          mobilePhone: phone,
+        }),
+      });
+
+      const asaasCustomerId = customer.id?.trim();
+      if (!asaasCustomerId) {
+        throw badRequest(
+          "O Asaas não retornou o identificador do cliente. Tente novamente."
+        );
+      }
+
+      await supabase
+        .from("User")
+        .update({
+          asaasCustomerId,
+          updatedAt: new Date().toISOString(),
+        })
+        .eq("id", userId);
+
+      return asaasCustomerId;
+    } catch (err) {
+      if (err instanceof PaymentProfileIncompleteError) {
+        throw err;
+      }
+      if (err instanceof AppError) {
+        throw err;
+      }
+      const detail = err instanceof Error ? err.message : "erro desconhecido";
+      throw badRequest(
+        `Não foi possível registrar seu cadastro de pagamento no Asaas. ${detail}`
+      );
+    }
+  }
+
   private async chargeViaAsaas(params: {
-    customerId: string;
+    contractorUserId: string;
+    payerProfile?: PaymentProfilePatch;
     professionalUserId: string;
     billingType: BillingType;
     amountGross: number;
@@ -71,12 +217,17 @@ export class PaymentsService {
       );
     }
 
+    const asaasCustomerId = await this.ensureAsaasCustomer(
+      params.contractorUserId,
+      params.payerProfile
+    );
+
     const professionalWalletId = await ensureAsaasRecipientWallet(
       params.professionalUserId
     );
 
     const asaasPayload: Record<string, unknown> = {
-      customer: params.customerId,
+      customer: asaasCustomerId,
       billingType: normalized.billingType,
       value: params.amountGross,
       dueDate: buildDueDate(1),
@@ -166,17 +317,14 @@ export class PaymentsService {
     if (!amountCandidate || amountCandidate <= 0 || listing.aCombinar) {
       throw badRequest("Este serviço não possui valor fixo para checkout.");
     }
-    const customerId = await ensureAsaasCustomer(
-      contractorId,
-      input.payerProfile
-    );
     const amountGross = Number(amountCandidate);
     const platformFee = Number((amountGross * 0.07).toFixed(2));
     const professionalNet = Number((amountGross - platformFee).toFixed(2));
 
     const { asaasPayment, pixQrCodeImage, pixCopyPaste, status } =
       await this.chargeViaAsaas({
-        customerId,
+        contractorUserId: contractorId,
+        payerProfile: input.payerProfile,
         billingType: input.billingType,
         amountGross,
         description: `Papufy - ${listing.titulo}`,
@@ -352,17 +500,14 @@ export class PaymentsService {
         .maybeSingle(),
       "Profissional não encontrado."
     );
-    const customerId = await ensureAsaasCustomer(
-      contractorId,
-      input.payerProfile
-    );
     const amountGross = Number(parsedProposal.proposalValue);
     const platformFee = Number((amountGross * 0.07).toFixed(2));
     const professionalNet = Number((amountGross - platformFee).toFixed(2));
 
     const { asaasPayment, pixQrCodeImage, pixCopyPaste, status } =
       await this.chargeViaAsaas({
-        customerId,
+        contractorUserId: contractorId,
+        payerProfile: input.payerProfile,
         billingType: input.billingType,
         amountGross,
         description: `Papufy - ${listing.titulo}`,

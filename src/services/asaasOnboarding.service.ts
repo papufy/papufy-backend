@@ -27,14 +27,6 @@ function digitsOnly(value: string): string {
   return value.replace(/\D/g, "");
 }
 
-function missingPayerFields(user: PaymentUserRow): string[] {
-  const missing: string[] = [];
-  if (!user.cpfCnpj || digitsOnly(user.cpfCnpj).length < 11) {
-    missing.push("cpfCnpj");
-  }
-  return missing;
-}
-
 function missingReceiverFields(user: PaymentUserRow): string[] {
   const missing: string[] = [];
   if (!user.cpfCnpj || digitsOnly(user.cpfCnpj).length < 11) {
@@ -106,48 +98,6 @@ async function applyPaymentProfilePatch(
       .select(USER_PAYMENT_SELECT)
       .single()
   );
-}
-
-/**
- * Cria cliente Asaas (pagador) na primeira cobrança — sem fluxo manual.
- */
-export async function ensureAsaasCustomer(
-  userId: string,
-  patch?: PaymentProfilePatch
-): Promise<string> {
-  if (!env.paymentsEnabled) {
-    throw badRequest(
-      "Pagamentos não configurados. Defina ASAAS_API_URL e ASAAS_API_KEY no Render."
-    );
-  }
-
-  const user = await applyPaymentProfilePatch(userId, patch);
-  const missing = missingPayerFields(user);
-  if (missing.length > 0) {
-    throw new PaymentProfileIncompleteError(missing, "payer");
-  }
-
-  if (user.asaasCustomerId) return user.asaasCustomerId;
-
-  const customer = await asaasRequest<{ id: string }>("/customers", {
-    method: "POST",
-    body: JSON.stringify({
-      name: user.nome,
-      email: user.email,
-      cpfCnpj: digitsOnly(String(user.cpfCnpj)),
-      mobilePhone: user.telefone ? sanitizePhone(user.telefone) : undefined,
-    }),
-  });
-
-  await supabase
-    .from("User")
-    .update({
-      asaasCustomerId: customer.id,
-      updatedAt: new Date().toISOString(),
-    })
-    .eq("id", userId);
-
-  return customer.id;
 }
 
 /**
