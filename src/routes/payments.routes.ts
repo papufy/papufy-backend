@@ -24,6 +24,10 @@ paymentsRoutes.post("/proposals/:messageId/checkout", requireAuth, (req, res, ne
   paymentsController.checkoutFromProposal(req, res, next)
 );
 
+paymentsRoutes.get("/wallet", requireAuth, (req, res, next) =>
+  paymentsController.walletSummary(req, res, next)
+);
+
 paymentsRoutes.get("/transactions/mine", requireAuth, (req, res, next) =>
   paymentsController.listMyTransactions(req, res, next)
 );

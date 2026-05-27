@@ -183,6 +183,16 @@ export class PaymentsController {
     }
   }
 
+  async walletSummary(req: Request, res: Response, next: NextFunction) {
+    try {
+      assertPaymentsEnabled();
+      const summary = await paymentsService.getWalletSummary(req.userId!);
+      res.json(summary);
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async webhook(req: Request, res: Response, next: NextFunction) {
     try {
       assertPaymentsEnabled();

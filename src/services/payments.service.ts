@@ -599,6 +599,43 @@ export class PaymentsService {
     return { transactions };
   }
 
+  async getWalletSummary(userId: string) {
+    const { transactions } = await this.listMyTransactions(userId);
+
+    let availableBalance = 0;
+    let pendingReceive = 0;
+    let pendingPay = 0;
+    let totalWithdrawn = 0;
+
+    for (const tx of transactions) {
+      if (tx.professionalId === userId) {
+        const net = Number(tx.professionalNet);
+        if (tx.status === "RELEASED") {
+          availableBalance += net;
+        } else if (
+          tx.status === "PENDING" ||
+          tx.status === "PAID" ||
+          tx.status === "IN_DISPUTE"
+        ) {
+          pendingReceive += net;
+        } else if (tx.status === "WITHDRAWN") {
+          totalWithdrawn += net;
+        }
+      }
+
+      if (tx.contractorId === userId && tx.status === "PENDING") {
+        pendingPay += Number(tx.amountGross);
+      }
+    }
+
+    return {
+      availableBalance: Number(availableBalance.toFixed(2)),
+      pendingReceive: Number(pendingReceive.toFixed(2)),
+      pendingPay: Number(pendingPay.toFixed(2)),
+      totalWithdrawn: Number(totalWithdrawn.toFixed(2)),
+    };
+  }
+
   async confirmCompletion(transactionId: string, userId: string) {
     const tx = assertNoError<Tables<"Transaction">>(
       await supabase
