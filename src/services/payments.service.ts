@@ -1,10 +1,13 @@
 import { assertNoError, newId, supabase } from "../lib/db";
 import {
   asaasRequest,
+  asaasSubaccountRequest,
   fetchAsaasPixQrCode,
   mapAsaasPaymentStatus,
   normalizePixEncodedImage,
+  type AsaasFinanceBalance,
   type AsaasPaymentResponse,
+  type AsaasTransferResponse,
 } from "../lib/asaasClient";
 import type { Tables } from "../types/database";
 import { env } from "../config/env";
@@ -21,7 +24,10 @@ import {
   type PaymentProfilePatch,
 } from "../utils/paymentCheckout";
 import { publicFileUrl } from "../middleware/upload";
-import { ensureAsaasRecipientWallet } from "./asaasOnboarding.service";
+import {
+  ensureAsaasRecipientWallet,
+  getAsaasSubaccountCredentials,
+} from "./asaasOnboarding.service";
 import { chatService } from "./chat.service";
 
 interface CreateCheckoutInput extends CheckoutPaymentInput {
@@ -636,6 +642,158 @@ export class PaymentsService {
     };
   }
 
+  /** Soma líquida das transações RELEASED (liberadas no Papufy) ainda não sacadas. */
+  private async sumReleasedNetForProfessional(professionalId: string): Promise<number> {
+    const { data } = await supabase
+      .from("Transaction")
+      .select("professionalNet")
+      .eq("professionalId", professionalId)
+      .eq("status", "RELEASED");
+
+    const total = (data ?? []).reduce(
+      (sum, row) => sum + Number(row.professionalNet),
+      0
+    );
+    return Number(total.toFixed(2));
+  }
+
+  /**
+   * Marca transações RELEASED como WITHDRAWN (FIFO) até cobrir o valor sacado.
+   */
+  private async markReleasedTransactionsWithdrawn(input: {
+    professionalId: string;
+    withdrawAmount: number;
+    transferId: string;
+    pixKey: string;
+  }): Promise<string[]> {
+    const { data: rows } = await supabase
+      .from("Transaction")
+      .select("id, professionalNet")
+      .eq("professionalId", input.professionalId)
+      .eq("status", "RELEASED")
+      .order("releasedAt", { ascending: true });
+
+    let remaining = input.withdrawAmount;
+    const markedIds: string[] = [];
+    const now = new Date().toISOString();
+
+    for (const row of rows ?? []) {
+      if (remaining < 0.01) break;
+      const net = Number(row.professionalNet);
+      if (net > remaining + 0.009) break;
+
+      await supabase
+        .from("Transaction")
+        .update({
+          status: "WITHDRAWN",
+          withdrawnAt: now,
+          withdrawPixKey: sanitizeText(input.pixKey, 120),
+          withdrawTransferId: input.transferId,
+          updatedAt: now,
+        })
+        .eq("id", row.id);
+
+      markedIds.push(row.id);
+      remaining = Number((remaining - net).toFixed(2));
+    }
+
+    return markedIds;
+  }
+
+  /** Saldo na subconta Asaas + quanto o Papufy já liberou para saque. */
+  async getSubaccountBalance(professionalId: string) {
+    const { walletId, apiKey } = await getAsaasSubaccountCredentials(professionalId);
+    const balance = await asaasSubaccountRequest<AsaasFinanceBalance>(
+      "/finance/balance",
+      apiKey,
+      { expectedStatus: [200] }
+    );
+    const asaasBalance = Number(balance.balance ?? 0);
+    const papufyWithdrawable = await this.sumReleasedNetForProfessional(professionalId);
+    const maxWithdraw = Number(
+      Math.min(asaasBalance, papufyWithdrawable).toFixed(2)
+    );
+
+    return {
+      balance: asaasBalance,
+      walletId,
+      papufyWithdrawable,
+      maxWithdraw,
+    };
+  }
+
+  /** Saque Pix a partir do saldo da subconta Asaas (POST /transfers). */
+  async requestSubaccountWithdraw(
+    professionalId: string,
+    input: { value: number; pixAddressKey: string }
+  ) {
+    const value = Number(Number(input.value).toFixed(2));
+    if (!Number.isFinite(value) || value < 1) {
+      throw badRequest("Informe um valor de saque válido (mínimo R$ 1,00).");
+    }
+
+    const pixAddressKey = sanitizeText(input.pixAddressKey, 120).trim();
+    if (!pixAddressKey) {
+      throw badRequest("Informe a chave Pix de destino.");
+    }
+
+    const papufyWithdrawable = await this.sumReleasedNetForProfessional(professionalId);
+    if (papufyWithdrawable < 1) {
+      throw badRequest(
+        "Nenhum valor liberado no Papufy para saque. Confirme a conclusão do serviço com o cliente em cada pagamento."
+      );
+    }
+    if (value > papufyWithdrawable + 0.009) {
+      throw badRequest(
+        `Valor acima do liberado no Papufy (R$ ${papufyWithdrawable.toFixed(2).replace(".", ",")}).`
+      );
+    }
+
+    const { walletId, apiKey } = await getAsaasSubaccountCredentials(professionalId);
+    const asaasBalance = await asaasSubaccountRequest<AsaasFinanceBalance>(
+      "/finance/balance",
+      apiKey,
+      { expectedStatus: [200] }
+    );
+    const balance = Number(asaasBalance.balance ?? 0);
+    if (value > balance + 0.009) {
+      throw badRequest(
+        `Saldo insuficiente na subconta Asaas. Disponível: R$ ${balance.toFixed(2).replace(".", ",")}.`
+      );
+    }
+
+    const transfer = await asaasSubaccountRequest<AsaasTransferResponse>(
+      "/transfers",
+      apiKey,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          value,
+          operationType: "PIX",
+          pixAddressKey,
+          description: `Saque Papufy — ${walletId.slice(0, 8)}`,
+        }),
+        expectedStatus: [200, 201],
+      }
+    );
+
+    const markedTransactionIds = await this.markReleasedTransactionsWithdrawn({
+      professionalId,
+      withdrawAmount: value,
+      transferId: transfer.id,
+      pixKey: pixAddressKey,
+    });
+
+    return {
+      transferId: transfer.id,
+      value,
+      walletId,
+      status: transfer.status ?? "PENDING",
+      markedTransactionIds,
+      papufyWithdrawableBefore: papufyWithdrawable,
+    };
+  }
+
   async confirmCompletion(transactionId: string, userId: string) {
     const tx = assertNoError<Tables<"Transaction">>(
       await supabase
@@ -704,59 +862,16 @@ export class PaymentsService {
     return { transaction: finalTx };
   }
 
-  async withdrawViaPix(input: {
-    transactionId: string;
-    professionalId: string;
-    pixKey: string;
+  async handleWebhook(payload: {
+    event?: string;
+    payment?: { id?: string };
+    transfer?: { id?: string };
   }) {
-    const tx = assertNoError<Tables<"Transaction">>(
-      await supabase
-        .from("Transaction")
-        .select("*")
-        .eq("id", input.transactionId)
-        .maybeSingle(),
-      "Transação não encontrada."
-    );
-    if (tx.professionalId !== input.professionalId) {
-      throw forbidden("Somente o profissional pode sacar esta transação.");
-    }
-    if (tx.status !== "RELEASED") {
-      throw badRequest("Saque disponível apenas para pagamentos liberados.");
-    }
-    if (tx.withdrawnAt) {
-      throw badRequest("Esta transação já foi sacada.");
+    const transferId = payload.transfer?.id;
+    if (transferId && payload.event?.startsWith("TRANSFER_")) {
+      return { transferAcknowledged: true, transferId };
     }
 
-    const transfer = await asaasRequest<{ id: string }>("/transfers", {
-      method: "POST",
-      body: JSON.stringify({
-        value: tx.professionalNet,
-        operationType: "PIX",
-        pixAddressKey: input.pixKey,
-        description: `Saque Papufy ${tx.id}`,
-      }),
-      expectedStatus: [200, 201],
-    });
-
-    const updated = assertNoError<Tables<"Transaction">>(
-      await supabase
-        .from("Transaction")
-        .update({
-          status: "WITHDRAWN",
-          withdrawnAt: new Date().toISOString(),
-          withdrawPixKey: sanitizeText(input.pixKey, 120),
-          withdrawTransferId: transfer.id,
-          updatedAt: new Date().toISOString(),
-        })
-        .eq("id", tx.id)
-        .select("*")
-        .single()
-    );
-
-    return { transaction: updated, transferId: transfer.id };
-  }
-
-  async handleWebhook(payload: { event?: string; payment?: { id?: string } }) {
     const paymentId = payload.payment?.id;
     if (!paymentId) return { ignored: true };
 

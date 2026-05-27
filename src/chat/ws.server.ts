@@ -1,5 +1,6 @@
 import type { Server } from "http";
 import { WebSocketServer, type WebSocket } from "ws";
+import { registerChatRealtime } from "./chatRealtime";
 import { env } from "../config/env";
 import { chatService } from "../services/chat.service";
 import { verifyToken } from "../utils/jwt";
@@ -219,6 +220,13 @@ export function setupWebSocket(server: Server) {
   }, 30000);
 
   wss.on("close", () => clearInterval(interval));
+
+  registerChatRealtime({
+    broadcastMessage: (conversationId, message) => {
+      broadcastToConversation(conversationId, { type: "message", message });
+    },
+    broadcastUnreadForUser: (userId) => broadcastUnread(userId),
+  });
 
   return wss;
 }

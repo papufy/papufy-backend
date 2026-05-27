@@ -1,9 +1,12 @@
 import type { NextFunction, Request, Response } from "express";
 import { supabase } from "../lib/db";
+import type { Tables } from "../types/database";
 import { verifyToken } from "../utils/jwt";
 
+type PublicUser = Omit<Tables<"User">, "senha" | "asaasSubaccountApiKey">;
+
 const USER_PUBLIC_SELECT =
-  "id, nome, email, telefone, cidade, uf, curriculoUrl, cpfCnpj, asaasCustomerId, asaasWalletId, createdAt, updatedAt";
+  "id, nome, email, telefone, cidade, uf, curriculoUrl, cpfCnpj, asaasCustomerId, asaasWalletId, asaasAccountId, createdAt, updatedAt";
 
 export async function optionalAuth(
   req: Request,
@@ -29,7 +32,7 @@ export async function optionalAuth(
 
     if (user) {
       req.userId = user.id;
-      req.user = user;
+      req.user = user as PublicUser;
     }
   } catch {
     /* ignore invalid token */

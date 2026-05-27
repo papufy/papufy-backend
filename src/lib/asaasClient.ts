@@ -78,6 +78,40 @@ export async function asaasRequest<T>(
   return json as T;
 }
 
+/**
+ * Requisição autenticada com a API key da subconta (não a conta master).
+ * O Asaas identifica a carteira pelo token — use para saldo e transferências Pix do profissional.
+ */
+export async function asaasSubaccountRequest<T>(
+  path: string,
+  subaccountApiKey: string,
+  init?: RequestInit & { expectedStatus?: number[] }
+): Promise<T> {
+  const key = subaccountApiKey.trim();
+  if (!key) {
+    throw badRequest("Chave de API da subconta Asaas não configurada.");
+  }
+
+  return asaasRequest<T>(path, {
+    ...init,
+    headers: {
+      ...(init?.headers ?? {}),
+      access_token: key,
+      "asaas-access-token": key,
+    },
+  });
+}
+
+export interface AsaasFinanceBalance {
+  balance: number;
+}
+
+export interface AsaasTransferResponse {
+  id: string;
+  status?: string;
+  value?: number;
+}
+
 /** Após POST /payments (PIX), o QR pode demorar alguns ms para ficar disponível. */
 export async function fetchAsaasPixQrCode(
   paymentId: string,

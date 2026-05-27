@@ -25,6 +25,7 @@ ensureDir(path.join(env.uploadDir, "curriculos"));
 ensureDir(path.join(env.uploadDir, "certificados"));
 ensureDir(path.join(env.uploadDir, "listings"));
 ensureDir(path.join(env.uploadDir, "support"));
+ensureDir(path.join(env.uploadDir, "chat"));
 
 function rejectFile(
   file: Express.Multer.File,
@@ -152,12 +153,19 @@ const supportProofMulter = multer({
   fileFilter: imageFilter,
 }).single("comprovante");
 
+const chatImageMulter = multer({
+  storage: storage("chat"),
+  limits: { fileSize: IMAGE_MAX, files: 1 },
+  fileFilter: imageFilter,
+}).single("imagem");
+
 export const uploadCurriculo = wrapMulter(curriculoMulter);
 
 export const uploadCertificados = wrapMulter(certificadosMulter);
 
 export const uploadListingImages = wrapMulter(listingImagesMulter);
 export const uploadSupportProof = wrapMulter(supportProofMulter);
+export const uploadChatImage = wrapMulter(chatImageMulter);
 
 export async function validateCurriculoUpload(
   req: Request,
@@ -237,6 +245,28 @@ export async function validateSupportProofUpload(
     const file = req.file;
     if (!file) {
       next();
+      return;
+    }
+    const kind: AllowedFileKind = file.mimetype === "image/png" ? "png" : "jpeg";
+    await assertFileMagic(file.path, kind);
+    next();
+  } catch (err) {
+    if (req.file?.path) {
+      fs.unlink(req.file.path, () => undefined);
+    }
+    next(err instanceof Error ? err : badRequest("Imagem inválida."));
+  }
+}
+
+export async function validateChatImageUpload(
+  req: Request,
+  _res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const file = req.file;
+    if (!file) {
+      next(badRequest("Envie uma imagem no campo imagem."));
       return;
     }
     const kind: AllowedFileKind = file.mimetype === "image/png" ? "png" : "jpeg";

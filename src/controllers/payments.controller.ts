@@ -94,8 +94,9 @@ const reportSchema = z.object({
   descricao: z.string().min(10).max(2000),
 });
 
-const withdrawSchema = z.object({
-  pixKey: z.string().min(3).max(120),
+const subaccountWithdrawSchema = z.object({
+  value: z.coerce.number().positive(),
+  pixAddressKey: z.string().min(3).max(120),
 });
 
 function assertPaymentsEnabled(): void {
@@ -193,6 +194,30 @@ export class PaymentsController {
     }
   }
 
+  async subaccountBalance(req: Request, res: Response, next: NextFunction) {
+    try {
+      assertPaymentsEnabled();
+      const result = await paymentsService.getSubaccountBalance(req.userId!);
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async subaccountWithdraw(req: Request, res: Response, next: NextFunction) {
+    try {
+      assertPaymentsEnabled();
+      const body = subaccountWithdrawSchema.parse(req.body);
+      const result = await paymentsService.requestSubaccountWithdraw(
+        req.userId!,
+        body
+      );
+      res.status(201).json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async webhook(req: Request, res: Response, next: NextFunction) {
     try {
       assertPaymentsEnabled();
@@ -243,21 +268,6 @@ export class PaymentsController {
     }
   }
 
-  async withdraw(req: Request, res: Response, next: NextFunction) {
-    try {
-      assertPaymentsEnabled();
-      const transactionId = String(req.params.id);
-      const { pixKey } = withdrawSchema.parse(req.body);
-      const result = await paymentsService.withdrawViaPix({
-        transactionId,
-        professionalId: req.userId!,
-        pixKey,
-      });
-      res.json(result);
-    } catch (err) {
-      next(err);
-    }
-  }
 }
 
 export const paymentsController = new PaymentsController();

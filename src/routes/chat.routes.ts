@@ -3,6 +3,10 @@ import { chatController } from "../controllers/chat.controller";
 import { requireAuth } from "../middleware/auth";
 import { validateResourceId } from "../middleware/validateId";
 import { rateLimit } from "../middleware/rateLimit";
+import {
+  uploadChatImage,
+  validateChatImageUpload,
+} from "../middleware/upload";
 
 const chatRoutes = Router();
 
@@ -33,6 +37,15 @@ chatRoutes.post(
   validateResourceId(),
   messageLimiter,
   (req, res, next) => chatController.sendMessage(req, res, next)
+);
+
+chatRoutes.post(
+  "/conversations/:id/messages/image",
+  validateResourceId(),
+  messageLimiter,
+  uploadChatImage,
+  validateChatImageUpload,
+  (req, res, next) => chatController.sendImage(req, res, next)
 );
 
 chatRoutes.post(

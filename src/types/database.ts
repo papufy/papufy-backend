@@ -301,6 +301,7 @@ export type Database = {
           conversationId: string;
           createdAt: string;
           id: string;
+          imageUrl: string | null;
           proposalValue: number | null;
           readAt: string | null;
           senderId: string;
@@ -312,6 +313,7 @@ export type Database = {
           conversationId: string;
           createdAt?: string;
           id: string;
+          imageUrl?: string | null;
           proposalValue?: number | null;
           readAt?: string | null;
           senderId: string;
@@ -323,6 +325,7 @@ export type Database = {
           conversationId?: string;
           createdAt?: string;
           id?: string;
+          imageUrl?: string | null;
           proposalValue?: number | null;
           readAt?: string | null;
           senderId?: string;
@@ -522,6 +525,8 @@ export type Database = {
           cpfCnpj: string | null;
           asaasCustomerId: string | null;
           asaasWalletId: string | null;
+          asaasAccountId: string | null;
+          asaasSubaccountApiKey: string | null;
         };
         Insert: {
           cidade?: string | null;
@@ -537,6 +542,8 @@ export type Database = {
           cpfCnpj?: string | null;
           asaasCustomerId?: string | null;
           asaasWalletId?: string | null;
+          asaasAccountId?: string | null;
+          asaasSubaccountApiKey?: string | null;
         };
         Update: {
           cidade?: string | null;
@@ -552,6 +559,8 @@ export type Database = {
           cpfCnpj?: string | null;
           asaasCustomerId?: string | null;
           asaasWalletId?: string | null;
+          asaasAccountId?: string | null;
+          asaasSubaccountApiKey?: string | null;
         };
         Relationships: [];
       };

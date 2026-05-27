@@ -1,6 +1,8 @@
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { chatService } from "../services/chat.service";
+import { publishChatMessageToPeers } from "../utils/chatNotify";
+import { badRequest } from "../utils/errors";
 
 export class ChatController {
   async startListingConversation(req: Request, res: Response, next: NextFunction) {
@@ -49,6 +51,32 @@ export class ChatController {
         .object({ content: z.string().min(1).max(2000) })
         .parse(req.body);
       const message = await chatService.sendMessage(id, req.userId!, content);
+      await publishChatMessageToPeers(id, req.userId!, {
+        ...message,
+        isMine: false,
+      });
+      res.status(201).json({ message });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async sendImage(req: Request, res: Response, next: NextFunction) {
+    try {
+      const id = String(req.params.id);
+      const file = req.file;
+      if (!file?.filename) {
+        throw badRequest("Envie uma imagem JPEG ou PNG.");
+      }
+      const message = await chatService.sendImageMessage(
+        id,
+        req.userId!,
+        file.filename
+      );
+      await publishChatMessageToPeers(id, req.userId!, {
+        ...message,
+        isMine: false,
+      });
       res.status(201).json({ message });
     } catch (err) {
       next(err);

@@ -28,6 +28,14 @@ paymentsRoutes.get("/wallet", requireAuth, (req, res, next) =>
   paymentsController.walletSummary(req, res, next)
 );
 
+paymentsRoutes.get("/balance", requireAuth, (req, res, next) =>
+  paymentsController.subaccountBalance(req, res, next)
+);
+
+paymentsRoutes.post("/withdraw", requireAuth, (req, res, next) =>
+  paymentsController.subaccountWithdraw(req, res, next)
+);
+
 paymentsRoutes.get("/transactions/mine", requireAuth, (req, res, next) =>
   paymentsController.listMyTransactions(req, res, next)
 );
@@ -46,9 +54,5 @@ paymentsRoutes.post(
 
 paymentsRoutes.post("/transactions/:id/confirm-completion", requireAuth, (req, res, next) =>
   paymentsController.confirmCompletion(req, res, next)
-);
-
-paymentsRoutes.post("/transactions/:id/withdraw", requireAuth, (req, res, next) =>
-  paymentsController.withdraw(req, res, next)
 );
 

@@ -1,3 +1,4 @@
+import { publicFileUrl } from "../middleware/upload";
 import { assertNoError, newId, supabase } from "../lib/db";
 import type { Tables } from "../types/database";
 import { sanitizeChatMessage } from "../utils/sanitize";
@@ -66,6 +67,7 @@ function toChatMessagePayload(
     content: parsed.content,
     type: parsed.type,
     proposalValue: parsed.proposalValue,
+    imageUrl: parsed.imageUrl,
     transactionId: m.transactionId ?? null,
     senderId: m.senderId,
     senderNome: sender.nome,
@@ -211,7 +213,11 @@ export class ChatService {
         otherUser: { id: other.id, nome: other.nome },
         lastMessage: last
           ? {
-              content: last.content,
+              content:
+                last.type === "IMAGE"
+                  ? "Imagem"
+                  : last.content,
+              type: last.type ?? "TEXT",
               createdAt: last.createdAt,
               isMine: last.senderId === userId,
             }
@@ -228,6 +234,7 @@ export class ChatService {
       id: string;
       conversationId: string;
       content: string;
+      type: string;
       senderId: string;
       createdAt: string;
       readAt: string | null;
@@ -244,7 +251,7 @@ export class ChatService {
           const { data, error } = await supabase
             .from("Message")
             .select(
-              "id, conversationId, content, senderId, createdAt, readAt"
+              "id, conversationId, content, type, senderId, createdAt, readAt"
             )
             .eq("conversationId", conversationId)
             .order("createdAt", { ascending: false })
@@ -373,6 +380,58 @@ export class ChatService {
           conversationId,
           senderId,
           content: trimmed,
+        })
+        .select("*, sender:User!Message_senderId_fkey(id, nome)")
+        .single()
+    );
+
+    const { error: updateError } = await supabase
+      .from("Conversation")
+      .update({ updatedAt: new Date().toISOString() })
+      .eq("id", conversationId);
+
+    if (updateError) {
+      const err = new Error(updateError.message);
+      (err as Error & { statusCode: number }).statusCode = 500;
+      throw err;
+    }
+
+    return toChatMessagePayload(message, senderId, true);
+  }
+
+  async sendImageMessage(
+    conversationId: string,
+    senderId: string,
+    imageFilename: string
+  ) {
+    const conversation = assertNoError<
+      Pick<
+        Tables<"Conversation">,
+        "id" | "contractorId" | "providerId" | "listingId"
+      >
+    >(
+      await supabase
+        .from("Conversation")
+        .select("id, contractorId, providerId, listingId")
+        .eq("id", conversationId)
+        .maybeSingle(),
+      "Conversa não encontrada."
+    );
+
+    this.ensureParticipant(conversation, senderId);
+
+    const imageUrl = publicFileUrl(`chat/${imageFilename}`);
+
+    const message = assertNoError<MessageWithSender>(
+      await supabase
+        .from("Message")
+        .insert({
+          id: newId(),
+          conversationId,
+          senderId,
+          content: "Imagem",
+          type: "IMAGE",
+          imageUrl,
         })
         .select("*, sender:User!Message_senderId_fkey(id, nome)")
         .single()

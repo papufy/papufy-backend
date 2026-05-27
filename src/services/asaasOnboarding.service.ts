@@ -7,7 +7,7 @@ import type { PaymentProfilePatch } from "../utils/paymentCheckout";
 import { sanitizePhone, sanitizeText } from "../utils/sanitize";
 
 const USER_PAYMENT_SELECT =
-  "id, nome, email, telefone, cidade, uf, cpfCnpj, asaasCustomerId, asaasWalletId";
+  "id, nome, email, telefone, cidade, uf, cpfCnpj, asaasCustomerId, asaasWalletId, asaasAccountId, asaasSubaccountApiKey";
 
 export type { PaymentProfilePatch };
 
@@ -21,6 +21,8 @@ type PaymentUserRow = {
   cpfCnpj: string | null;
   asaasCustomerId: string | null;
   asaasWalletId: string | null;
+  asaasAccountId: string | null;
+  asaasSubaccountApiKey: string | null;
 };
 
 function digitsOnly(value: string): string {
@@ -100,6 +102,36 @@ async function applyPaymentProfilePatch(
   );
 }
 
+/** Tenta gerar nova API key da subconta (conta master + asaasAccountId). */
+async function tryRecoverSubaccountApiKey(
+  userId: string,
+  user: PaymentUserRow
+): Promise<boolean> {
+  if (!user.asaasAccountId?.trim()) return false;
+  try {
+    const token = await asaasRequest<{ apiKey?: string }>(
+      `/accounts/${user.asaasAccountId}/accessTokens`,
+      {
+        method: "POST",
+        body: JSON.stringify({ name: "Papufy" }),
+        expectedStatus: [200],
+      }
+    );
+    const apiKey = token.apiKey?.trim();
+    if (!apiKey) return false;
+    await supabase
+      .from("User")
+      .update({
+        asaasSubaccountApiKey: apiKey,
+        updatedAt: new Date().toISOString(),
+      })
+      .eq("id", userId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Cria subconta/carteira Asaas (recebedor) no primeiro recebimento ou proposta.
  */
@@ -119,39 +151,76 @@ export async function ensureAsaasRecipientWallet(
     throw new PaymentProfileIncompleteError(missing, "receiver");
   }
 
-  if (user.asaasWalletId) return user.asaasWalletId;
+  if (user.asaasWalletId && user.asaasSubaccountApiKey) {
+    return user.asaasWalletId;
+  }
+
+  if (user.asaasWalletId && !user.asaasSubaccountApiKey) {
+    const recovered = await tryRecoverSubaccountApiKey(userId, user);
+    if (recovered) return user.asaasWalletId;
+    throw badRequest(
+      "Sua carteira Asaas existe, mas a chave de API da subconta não está registrada. Entre em contato com o suporte Papufy."
+    );
+  }
 
   const cpfCnpj = digitsOnly(String(user.cpfCnpj));
   const mobilePhone = sanitizePhone(String(user.telefone));
   const cidade = user.cidade?.trim() || "Centro";
   const uf = user.uf?.trim().toUpperCase() || "PB";
 
-  const account = await asaasRequest<{ walletId: string; id: string }>(
-    "/accounts",
-    {
-      method: "POST",
-      body: JSON.stringify({
-        name: sanitizeText(user.nome, 120),
-        email: user.email.trim().toLowerCase(),
-        cpfCnpj,
-        mobilePhone,
-        incomeValue: 5000,
-        address: cidade,
-        addressNumber: "S/N",
-        province: uf,
-        postalCode: "58010000",
-      }),
-    }
-  );
+  const account = await asaasRequest<{
+    walletId: string;
+    id: string;
+    apiKey: string;
+  }>("/accounts", {
+    method: "POST",
+    body: JSON.stringify({
+      name: sanitizeText(user.nome, 120),
+      email: user.email.trim().toLowerCase(),
+      cpfCnpj,
+      mobilePhone,
+      incomeValue: 5000,
+      address: cidade,
+      addressNumber: "S/N",
+      province: uf,
+      postalCode: "58010000",
+    }),
+  });
+
+  if (!account.apiKey?.trim()) {
+    throw badRequest(
+      "Subconta Asaas criada sem chave de API. Contate o suporte Papufy."
+    );
+  }
 
   await supabase
     .from("User")
     .update({
       cpfCnpj,
       asaasWalletId: account.walletId,
+      asaasAccountId: account.id,
+      asaasSubaccountApiKey: account.apiKey.trim(),
       updatedAt: new Date().toISOString(),
     })
     .eq("id", userId);
 
   return account.walletId;
+}
+
+/** Credenciais da subconta Asaas do profissional (wallet + API key). */
+export async function getAsaasSubaccountCredentials(userId: string): Promise<{
+  walletId: string;
+  apiKey: string;
+}> {
+  await ensureAsaasRecipientWallet(userId);
+  const user = await loadPaymentUser(userId);
+  if (!user.asaasWalletId || !user.asaasSubaccountApiKey) {
+    throw badRequest(
+      "Carteira de recebimento não configurada. Complete CPF e telefone no perfil."
+    );
+  }
+  return {
+    walletId: user.asaasWalletId,
+    apiKey: user.asaasSubaccountApiKey,
+  };
 }
