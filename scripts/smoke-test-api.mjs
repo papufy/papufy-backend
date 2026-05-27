@@ -94,11 +94,13 @@ async function main() {
   const token = login.json.token;
   const auth = { Authorization: `Bearer ${token}` };
 
+  const joaoId = login.json.user?.id;
   const jobListing = listAll.json?.listings?.find(
-    (l) => (l.listingType ?? l.tipo) === "JOB_VACANCY"
+    (l) =>
+      (l.listingType ?? l.tipo) === "JOB_VACANCY" && l.userId !== joaoId
   );
   if (!jobListing) {
-    fail("Encontrar listing JOB_VACANCY para chat");
+    fail("Encontrar listing JOB_VACANCY de outro usuário para chat");
     printSummary();
     process.exit(1);
   }
@@ -112,7 +114,7 @@ async function main() {
     printSummary();
     process.exit(1);
   }
-  pass("POST /chat/listings/:id/start", start.json.conversationId);
+  pass("POST /chat/listings/:id/start (joao como provider)", start.json.conversationId);
 
   const convId = start.json.conversationId;
 

@@ -4,6 +4,7 @@ import { env } from "../config/env";
 import type { BillingType, TransactionStatus } from "../types/enums";
 import { sanitizePhone, sanitizeText } from "../utils/sanitize";
 import { forbidden, badRequest } from "../utils/errors";
+import { parseProposalFields } from "../utils/messageProposal";
 import { publicFileUrl } from "../middleware/upload";
 import { chatService } from "./chat.service";
 
@@ -359,17 +360,27 @@ export class PaymentsService {
     const proposal = assertNoError<
       Pick<
         Tables<"Message">,
-        "id" | "conversationId" | "senderId" | "proposalValue" | "type"
+        | "id"
+        | "conversationId"
+        | "senderId"
+        | "proposalValue"
+        | "type"
+        | "content"
       >
     >(
       await supabase
         .from("Message")
-        .select("id, conversationId, senderId, proposalValue, type")
+        .select("id, conversationId, senderId, proposalValue, type, content")
         .eq("id", messageId)
         .maybeSingle(),
       "Proposta não encontrada."
     );
-    if (proposal.type !== "PROPOSAL" || !proposal.proposalValue) {
+    const parsedProposal = parseProposalFields({
+      content: proposal.content,
+      type: proposal.type,
+      proposalValue: proposal.proposalValue,
+    });
+    if (parsedProposal.type !== "PROPOSAL" || !parsedProposal.proposalValue) {
       throw badRequest("Mensagem não é uma proposta válida.");
     }
     const conversation = assertNoError<
@@ -418,7 +429,7 @@ export class PaymentsService {
     }
 
     const customerId = await this.ensureCustomer(contractorId);
-    const amountGross = Number(proposal.proposalValue);
+    const amountGross = Number(parsedProposal.proposalValue);
     const platformFee = Number((amountGross * 0.07).toFixed(2));
     const professionalNet = Number((amountGross - platformFee).toFixed(2));
 
