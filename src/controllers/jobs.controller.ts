@@ -2,7 +2,7 @@ import type { Request, Response, NextFunction } from "express";
 import type { JobStatus } from "../types/enums";
 import { z } from "zod";
 import { jobsService } from "../services/jobs.service";
-import { JOB_CATEGORIES } from "../constants/categories";
+import { JOB_VACANCY_CATEGORIES } from "../constants/categories";
 
 const createJobSchema = z
   .object({
@@ -10,7 +10,7 @@ const createJobSchema = z
     descricao: z.string().min(20, "Descrição deve ter ao menos 20 caracteres."),
     preco: z.number().positive().optional().nullable(),
     aCombinar: z.boolean().default(false),
-    categoria: z.enum(JOB_CATEGORIES as unknown as [string, ...string[]]),
+    categoria: z.enum(JOB_VACANCY_CATEGORIES as unknown as [string, ...string[]]),
     cep: z.string().optional(),
     cidade: z.string().min(2),
     bairro: z.string().optional(),
@@ -27,7 +27,7 @@ const updateJobSchema = z.object({
   descricao: z.string().min(20).optional(),
   preco: z.number().positive().optional().nullable(),
   aCombinar: z.boolean().optional(),
-  categoria: z.enum(JOB_CATEGORIES as unknown as [string, ...string[]]).optional(),
+  categoria: z.enum(JOB_VACANCY_CATEGORIES as unknown as [string, ...string[]]).optional(),
   cep: z.string().optional(),
   cidade: z.string().min(2).optional(),
   bairro: z.string().optional(),

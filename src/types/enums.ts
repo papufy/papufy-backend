@@ -1,5 +1,5 @@
 export type JobStatus = "OPEN" | "CLOSED";
-export type ListingType = "BICO" | "PRODUTO";
+export type ListingType = "JOB_VACANCY" | "PROFESSIONAL_PROFILE";
 export type ListingStatus = "OPEN" | "CLOSED" | "IN_PROGRESS";
 export type BillingType = "PIX" | "CREDIT_CARD";
 export type TransactionStatus =
@@ -11,10 +11,11 @@ export type TransactionStatus =
   | "FAILED"
   | "CANCELED";
 
-export type ApiListingType = "JOB_VACANCY" | "PROFESSIONAL_PROFILE";
+/** @deprecated Aceito só em query/body legados — use normalizeListingType */
+export type LegacyListingType = "BICO" | "PRODUTO";
 
 export const JobStatusValues = ["OPEN", "CLOSED"] as const;
-export const ListingTypeValues = ["BICO", "PRODUTO"] as const;
+export const ListingTypeValues = ["JOB_VACANCY", "PROFESSIONAL_PROFILE"] as const;
 export const ListingStatusValues = ["OPEN", "CLOSED", "IN_PROGRESS"] as const;
 export const BillingTypeValues = ["PIX", "CREDIT_CARD"] as const;
 export const TransactionStatusValues = [
@@ -27,10 +28,21 @@ export const TransactionStatusValues = [
   "CANCELED",
 ] as const;
 
-export function apiListingTypeToDbTipo(
-  listingType?: ApiListingType
+const LEGACY_TO_LISTING_TYPE: Record<LegacyListingType, ListingType> = {
+  BICO: "JOB_VACANCY",
+  PRODUTO: "PROFESSIONAL_PROFILE",
+};
+
+/** Normaliza tipo de anúncio (aceita aliases BICO/PRODUTO em requests legados). */
+export function normalizeListingType(
+  value?: string | null
 ): ListingType | undefined {
-  if (listingType === "JOB_VACANCY") return "BICO";
-  if (listingType === "PROFESSIONAL_PROFILE") return "PRODUTO";
+  if (!value) return undefined;
+  if (value === "JOB_VACANCY" || value === "PROFESSIONAL_PROFILE") {
+    return value;
+  }
+  if (value === "BICO" || value === "PRODUTO") {
+    return LEGACY_TO_LISTING_TYPE[value];
+  }
   return undefined;
 }

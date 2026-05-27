@@ -129,8 +129,10 @@ export class PaymentsService {
 
     const professional = listing.user;
 
-    if (listing.tipo !== "PRODUTO") {
-      throw badRequest("Pagamento só disponível para profissional disponível.");
+    if (listing.tipo !== "PROFESSIONAL_PROFILE") {
+      throw badRequest(
+        "Pagamento direto só está disponível para perfil profissional."
+      );
     }
     if (listing.userId === contractorId) {
       throw badRequest("Você não pode pagar o próprio anúncio.");
@@ -394,11 +396,11 @@ export class PaymentsService {
         .maybeSingle(),
       "Anúncio não encontrado."
     );
-    if (listing.userId !== contractorId) {
-      throw forbidden("Somente quem criou o anúncio pode pagar a proposta.");
+    if (contractorId !== conversation.contractorId) {
+      throw forbidden("Somente o contratante pode pagar esta proposta.");
     }
-    if (proposal.senderId === contractorId) {
-      throw badRequest("Você não pode pagar a sua própria proposta.");
+    if (proposal.senderId !== conversation.providerId) {
+      throw badRequest("Proposta inválida para esta conversa.");
     }
 
     const professional = assertNoError<

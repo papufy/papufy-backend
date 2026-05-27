@@ -211,7 +211,7 @@ async function main() {
     placeholder: string;
   }> = [
     {
-      tipo: "BICO",
+      tipo: "JOB_VACANCY",
       titulo: "Eletricista residencial urgente",
       descricao: "Curto-circuito no quadro. Atendimento hoje se possível.",
       preco: 200,
@@ -225,7 +225,7 @@ async function main() {
       placeholder: "bico-eletrica",
     },
     {
-      tipo: "BICO",
+      tipo: "JOB_VACANCY",
       titulo: "Montagem de móveis planejados",
       descricao: "Cozinha completa, 8 módulos. Ferramentas do profissional.",
       preco: null,
@@ -238,7 +238,7 @@ async function main() {
       placeholder: "bico-moveis",
     },
     {
-      tipo: "PRODUTO",
+      tipo: "PROFESSIONAL_PROFILE",
       titulo: "iPhone 13 128GB seminovo",
       descricao: "Bateria 87%, sem trincas, com caixa e cabo original.",
       preco: 2800,
@@ -251,7 +251,7 @@ async function main() {
       placeholder: "prod-iphone",
     },
     {
-      tipo: "PRODUTO",
+      tipo: "PROFESSIONAL_PROFILE",
       titulo: "Sofá retrátil 3 lugares cinza",
       descricao: "Usado 1 ano, excelente estado. Retirada no bairro Universitário.",
       preco: 950,
@@ -265,7 +265,7 @@ async function main() {
       placeholder: "prod-sofa",
     },
     {
-      tipo: "PRODUTO",
+      tipo: "PROFESSIONAL_PROFILE",
       titulo: "Bicicleta MTB aro 29",
       descricao: "Marchas Shimano, freio a disco. Pequeno risco no guidão.",
       preco: 1200,
@@ -278,7 +278,7 @@ async function main() {
       placeholder: "prod-bike",
     },
     {
-      tipo: "PRODUTO",
+      tipo: "PROFESSIONAL_PROFILE",
       titulo: "Geladeira Consul 342L frost free",
       descricao: "Funcionando perfeitamente. Troca por mudança.",
       preco: 1500,

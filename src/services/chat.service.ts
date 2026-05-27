@@ -11,7 +11,7 @@ import {
 const CONVERSATION_SELECT = `
   *,
   Job:Job!Conversation_jobId_fkey(id, titulo, categoria),
-  Listing:Listing!Conversation_listingId_fkey(id, titulo, categoria),
+  Listing:Listing!Conversation_listingId_fkey(id, titulo, categoria, tipo),
   contractor:User!Conversation_contractorId_fkey(id, nome),
   provider:User!Conversation_providerId_fkey(id, nome)
 `;
@@ -25,7 +25,12 @@ type ConversationRow = {
   createdAt: string;
   updatedAt: string;
   Job?: { id: string; titulo: string; categoria: string } | null;
-  Listing?: { id: string; titulo: string; categoria: string } | null;
+  Listing?: {
+    id: string;
+    titulo: string;
+    categoria: string;
+    tipo: string;
+  } | null;
   contractor: { id: string; nome: string };
   provider: { id: string; nome: string };
 };
@@ -107,8 +112,10 @@ export class ChatService {
       throw error;
     }
 
-    const contractorId = listing.userId;
-    const providerId = userId;
+    const { contractorId, providerId } = this.listingConversationRoles(
+      listing,
+      userId
+    );
 
     const { data: existing } = await supabase
       .from("Conversation")
@@ -147,32 +154,7 @@ export class ChatService {
     ) as ConversationRow[];
 
     const convIds = conversations.map((c) => c.id);
-    const lastByConv = new Map<
-      string,
-      {
-        id: string;
-        content: string;
-        senderId: string;
-        createdAt: string;
-        readAt: string | null;
-      }
-    >();
-
-    if (convIds.length > 0) {
-      const messages = assertNoError(
-        await supabase
-          .from("Message")
-          .select("id, conversationId, content, senderId, createdAt, readAt")
-          .in("conversationId", convIds)
-          .order("createdAt", { ascending: false })
-      );
-
-      for (const m of messages) {
-        if (!lastByConv.has(m.conversationId)) {
-          lastByConv.set(m.conversationId, m);
-        }
-      }
-    }
+    const lastByConv = await this.fetchLastMessageByConversation(convIds);
 
     return conversations.map((c) => {
       const other =
@@ -189,6 +171,7 @@ export class ChatService {
         providerId: c.providerId,
         myRole: c.contractorId === userId ? "contractor" : "provider",
         contextType: c.listingId ? "listing" : "job",
+        listingType: c.Listing?.tipo ?? undefined,
         jobTitulo: c.Job?.titulo ?? c.Listing?.titulo ?? "Conversa",
         jobCategoria: c.Job?.categoria ?? c.Listing?.categoria ?? "Geral",
         otherUser: { id: other.id, nome: other.nome },
@@ -203,6 +186,52 @@ export class ChatService {
         updatedAt: c.updatedAt,
       };
     });
+  }
+
+  /** Uma query indexada por conversa (limit 1) — evita carregar todo o histórico. */
+  private async fetchLastMessageByConversation(convIds: string[]) {
+    type LastMsg = {
+      id: string;
+      conversationId: string;
+      content: string;
+      senderId: string;
+      createdAt: string;
+      readAt: string | null;
+    };
+
+    const lastByConv = new Map<string, LastMsg>();
+    if (convIds.length === 0) return lastByConv;
+
+    const chunkSize = 12;
+    for (let i = 0; i < convIds.length; i += chunkSize) {
+      const chunk = convIds.slice(i, i + chunkSize);
+      const rows = await Promise.all(
+        chunk.map(async (conversationId) => {
+          const { data, error } = await supabase
+            .from("Message")
+            .select(
+              "id, conversationId, content, senderId, createdAt, readAt"
+            )
+            .eq("conversationId", conversationId)
+            .order("createdAt", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (error) {
+            const err = new Error(error.message);
+            (err as Error & { statusCode: number }).statusCode = 500;
+            throw err;
+          }
+          return data as LastMsg | null;
+        })
+      );
+
+      for (const row of rows) {
+        if (row) lastByConv.set(row.conversationId, row);
+      }
+    }
+
+    return lastByConv;
   }
 
   async getUnreadCount(userId: string) {
@@ -394,6 +423,16 @@ export class ChatService {
     };
   }
 
+  private listingConversationRoles(
+    listing: Pick<Tables<"Listing">, "userId" | "tipo">,
+    userId: string
+  ): { contractorId: string; providerId: string } {
+    if (listing.tipo === "JOB_VACANCY") {
+      return { contractorId: listing.userId, providerId: userId };
+    }
+    return { contractorId: userId, providerId: listing.userId };
+  }
+
   async createProposal(
     conversationId: string,
     senderId: string,
@@ -414,16 +453,21 @@ export class ChatService {
       throw forbidden("Proposta disponível apenas para conversa de anúncio.");
     }
     const listing = assertNoError<
-      Pick<Tables<"Listing">, "id" | "userId">
+      Pick<Tables<"Listing">, "id" | "tipo">
     >(
       await supabase
         .from("Listing")
-        .select("id, userId")
+        .select("id, tipo")
         .eq("id", conversation.listingId)
         .maybeSingle(),
       "Anúncio não encontrado."
     );
-    if (listing.userId === senderId) {
+    if (listing.tipo !== "JOB_VACANCY") {
+      throw forbidden(
+        "Proposta por chat é só para pedidos de serviço. Use o pagamento no anúncio."
+      );
+    }
+    if (senderId !== conversation.providerId) {
       throw forbidden("Somente quem executa o serviço pode enviar proposta.");
     }
 

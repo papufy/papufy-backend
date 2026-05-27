@@ -1,7 +1,7 @@
 import type { JobStatus } from "../types/enums";
 import type { Tables } from "../types/database";
 import { assertNoError, newId, supabase } from "../lib/db";
-import { JOB_CATEGORIES } from "../constants/categories";
+import { JOB_VACANCY_CATEGORIES } from "../constants/categories";
 import { sanitizePhone, sanitizeText } from "../utils/sanitize";
 import { chatService } from "./chat.service";
 
@@ -201,7 +201,7 @@ export class JobsService {
       telefone: string;
     }
   ) {
-    if (!JOB_CATEGORIES.includes(data.categoria as (typeof JOB_CATEGORIES)[number])) {
+    if (!JOB_VACANCY_CATEGORIES.includes(data.categoria as (typeof JOB_VACANCY_CATEGORIES)[number])) {
       const error = new Error("Categoria inválida.");
       (error as Error & { statusCode: number }).statusCode = 400;
       throw error;
@@ -428,7 +428,7 @@ export class JobsService {
   }
 
   getCategories() {
-    return JOB_CATEGORIES;
+    return JOB_VACANCY_CATEGORIES;
   }
 
   private async assertOwner(jobId: string, userId: string) {

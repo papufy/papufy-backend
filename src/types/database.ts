@@ -566,7 +566,7 @@ export type Database = {
       BillingType: "PIX" | "CREDIT_CARD";
       JobStatus: "OPEN" | "CLOSED";
       ListingStatus: "OPEN" | "CLOSED" | "IN_PROGRESS";
-      ListingType: "BICO" | "PRODUTO";
+      ListingType: "JOB_VACANCY" | "PROFESSIONAL_PROFILE";
       TransactionStatus:
         | "PENDING"
         | "PAID"

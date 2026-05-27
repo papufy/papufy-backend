@@ -1,4 +1,5 @@
-export const BICO_CATEGORIES = [
+/** Categorias para pedidos de serviço (JOB_VACANCY) */
+export const JOB_VACANCY_CATEGORIES = [
   "Assistência Técnica",
   "Reformas e Reparos",
   "Serviços Domésticos",
@@ -7,7 +8,8 @@ export const BICO_CATEGORIES = [
   "Eventos",
 ] as const;
 
-export const PROFESSIONAL_CATEGORIES = [
+/** Categorias para perfil profissional (PROFESSIONAL_PROFILE) */
+export const PROFESSIONAL_PROFILE_CATEGORIES = [
   "Eletricista",
   "Encanador",
   "Pintor",
@@ -17,15 +19,9 @@ export const PROFESSIONAL_CATEGORIES = [
   "Outros Serviços",
 ] as const;
 
-/** Alias legado usado em listagens tipo PRODUTO */
-export const PRODUCT_CATEGORIES = PROFESSIONAL_CATEGORIES;
-
-/** @deprecated use BICO_CATEGORIES */
-export const JOB_CATEGORIES = BICO_CATEGORIES;
-
-export type WorkCategory = (typeof BICO_CATEGORIES)[number];
-export type ProfessionalCategory = (typeof PROFESSIONAL_CATEGORIES)[number];
-export type JobCategory = WorkCategory;
+export type JobVacancyCategory = (typeof JOB_VACANCY_CATEGORIES)[number];
+export type ProfessionalProfileCategory =
+  (typeof PROFESSIONAL_PROFILE_CATEGORIES)[number];
 
 export const BRAZIL_STATES = [
   "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA",

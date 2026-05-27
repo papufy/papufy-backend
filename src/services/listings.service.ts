@@ -1,8 +1,8 @@
 import type { ListingStatus, ListingType } from "../types/enums";
 import { assertNoError, newId, supabase } from "../lib/db";
 import {
-  BICO_CATEGORIES,
-  PRODUCT_CATEGORIES,
+  JOB_VACANCY_CATEGORIES,
+  PROFESSIONAL_PROFILE_CATEGORIES,
 } from "../constants/categories";
 import { sanitizePhone, sanitizeText } from "../utils/sanitize";
 import { forbidden } from "../utils/errors";
@@ -66,7 +66,7 @@ function mapListing(
   return {
     id: listing.id,
     userId: listing.userId,
-    tipo: listing.tipo,
+    listingType: listing.tipo,
     titulo: listing.titulo,
     descricao: listing.descricao,
     preco: listing.preco,
@@ -229,7 +229,9 @@ export class ListingsService {
     }
   ) {
     const categories: readonly string[] =
-      data.tipo === "PRODUTO" ? PRODUCT_CATEGORIES : BICO_CATEGORIES;
+      data.tipo === "PROFESSIONAL_PROFILE"
+        ? PROFESSIONAL_PROFILE_CATEGORIES
+        : JOB_VACANCY_CATEGORIES;
 
     if (!categories.includes(data.categoria)) {
       throw new Error("Categoria inválida para este tipo de anúncio.");

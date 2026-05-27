@@ -22,8 +22,10 @@ export class ChatController {
 
   async listConversations(req: Request, res: Response, next: NextFunction) {
     try {
-      const conversations = await chatService.listConversations(req.userId!);
-      const unreadTotal = await chatService.getUnreadCount(req.userId!);
+      const [conversations, unreadTotal] = await Promise.all([
+        chatService.listConversations(req.userId!),
+        chatService.getUnreadCount(req.userId!),
+      ]);
       res.json({ conversations, unreadTotal });
     } catch (err) {
       next(err);

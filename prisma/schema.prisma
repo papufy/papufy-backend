@@ -14,8 +14,8 @@ enum JobStatus {
 }
 
 enum ListingType {
-  JOB_VACANCY          @map("BICO")
-  PROFESSIONAL_PROFILE @map("PRODUTO")
+  JOB_VACANCY
+  PROFESSIONAL_PROFILE
 }
 
 enum ListingStatus {
