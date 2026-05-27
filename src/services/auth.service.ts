@@ -4,6 +4,7 @@ import type { Tables } from "../types/database";
 import { sanitizeEmail, sanitizePhone, sanitizeText } from "../utils/sanitize";
 import { validatePasswordStrength } from "../utils/password";
 import { signToken } from "../utils/jwt";
+import { badRequest } from "../utils/errors";
 
 const BCRYPT_ROUNDS = 12;
 
@@ -146,6 +147,7 @@ export class AuthService {
       telefone?: string;
       cidade?: string;
       uf?: string;
+      cpfCnpj?: string;
       senhaAtual?: string;
       novaSenha?: string;
     }
@@ -160,10 +162,18 @@ export class AuthService {
       telefone?: string | null;
       cidade?: string | null;
       uf?: string | null;
+      cpfCnpj?: string;
       senha?: string;
       updatedAt?: string;
     } = { updatedAt: new Date().toISOString() };
 
+    if (data.cpfCnpj !== undefined) {
+      const doc = data.cpfCnpj.replace(/\D/g, "");
+      if (doc.length !== 11 && doc.length !== 14) {
+        throw badRequest("CPF deve ter 11 dígitos ou CNPJ 14 dígitos.");
+      }
+      updateData.cpfCnpj = doc;
+    }
     if (data.nome) updateData.nome = sanitizeText(data.nome, 120);
     if (data.telefone !== undefined) {
       updateData.telefone = data.telefone ? sanitizePhone(data.telefone) : null;

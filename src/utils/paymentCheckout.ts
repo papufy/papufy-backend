@@ -17,11 +17,20 @@ export interface CreditCardHolderPayload {
   phone: string;
 }
 
+export interface PaymentProfilePatch {
+  cpfCnpj?: string;
+  telefone?: string;
+  cidade?: string;
+  uf?: string;
+}
+
 export interface CheckoutPaymentInput {
   billingType: "PIX" | "CREDIT_CARD";
   creditCard?: CreditCardPayload;
   creditCardHolderInfo?: CreditCardHolderPayload;
   remoteIp?: string;
+  /** Dados extras do pagador no primeiro pagamento (ex.: CPF ausente no cadastro). */
+  payerProfile?: PaymentProfilePatch;
 }
 
 export function normalizeCheckoutPaymentInput(input: CheckoutPaymentInput): {

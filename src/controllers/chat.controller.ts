@@ -58,10 +58,23 @@ export class ChatController {
   async sendProposal(req: Request, res: Response, next: NextFunction) {
     try {
       const id = String(req.params.id);
-      const { value } = z
-        .object({ value: z.coerce.number().positive() })
+      const { value, receiverProfile } = z
+        .object({
+          value: z.coerce.number().positive(),
+          receiverProfile: z
+            .object({
+              cpfCnpj: z.string().min(11).optional(),
+              telefone: z.string().min(8).optional(),
+            })
+            .optional(),
+        })
         .parse(req.body);
-      const message = await chatService.createProposal(id, req.userId!, value);
+      const message = await chatService.createProposal(
+        id,
+        req.userId!,
+        value,
+        receiverProfile
+      );
       res.status(201).json({ message });
     } catch (err) {
       next(err);

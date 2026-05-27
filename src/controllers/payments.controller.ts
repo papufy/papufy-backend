@@ -34,12 +34,18 @@ const creditCardHolderSchema = z.object({
   phone: z.string().min(8),
 });
 
+const payerProfileSchema = z.object({
+  cpfCnpj: z.string().min(11).optional(),
+  telefone: z.string().min(8).optional(),
+});
+
 const checkoutSchema = z
   .object({
     listingId: z.string().uuid(),
     billingType: z.enum(BillingTypeValues),
     creditCard: creditCardSchema.optional(),
     creditCardHolderInfo: creditCardHolderSchema.optional(),
+    payerProfile: payerProfileSchema.optional(),
   })
   .superRefine((data, ctx) => {
     if (data.billingType !== "CREDIT_CARD") return;
@@ -64,6 +70,7 @@ const proposalCheckoutSchema = z
     billingType: z.enum(BillingTypeValues),
     creditCard: creditCardSchema.optional(),
     creditCardHolderInfo: creditCardHolderSchema.optional(),
+    payerProfile: payerProfileSchema.optional(),
   })
   .superRefine((data, ctx) => {
     if (data.billingType !== "CREDIT_CARD") return;

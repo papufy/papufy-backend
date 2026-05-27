@@ -1,7 +1,10 @@
 import { assertNoError, newId, supabase } from "../lib/db";
 import type { Tables } from "../types/database";
 import { sanitizeChatMessage } from "../utils/sanitize";
+import { env } from "../config/env";
 import { forbidden } from "../utils/errors";
+import type { PaymentProfilePatch } from "../utils/paymentCheckout";
+import { ensureAsaasRecipientWallet } from "./asaasOnboarding.service";
 import { normalizeListingType } from "../types/enums";
 import {
   CONTACT_VIOLATION_MESSAGE,
@@ -445,7 +448,8 @@ export class ChatService {
   async createProposal(
     conversationId: string,
     senderId: string,
-    value: number
+    value: number,
+    receiverProfile?: PaymentProfilePatch
   ) {
     const conversation = assertNoError<
       Pick<Tables<"Conversation">, "id" | "contractorId" | "providerId" | "listingId">
@@ -479,6 +483,10 @@ export class ChatService {
     }
     if (senderId !== conversation.providerId) {
       throw forbidden("Somente quem executa o serviço pode enviar proposta.");
+    }
+
+    if (env.paymentsEnabled) {
+      await ensureAsaasRecipientWallet(senderId, receiverProfile);
     }
 
     const displayContent = `Proposta de serviço enviada: R$ ${value.toFixed(2)}`;

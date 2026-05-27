@@ -19,6 +19,10 @@ import {
   type CheckoutPaymentInput,
 } from "../utils/paymentCheckout";
 import { publicFileUrl } from "../middleware/upload";
+import {
+  ensureAsaasCustomer,
+  ensureAsaasRecipientWallet,
+} from "./asaasOnboarding.service";
 import { chatService } from "./chat.service";
 
 interface CreateCheckoutInput extends CheckoutPaymentInput {
@@ -39,11 +43,11 @@ function buildDueDate(daysAhead = 1): string {
 export class PaymentsService {
   private async chargeViaAsaas(params: {
     customerId: string;
+    professionalUserId: string;
     billingType: BillingType;
     amountGross: number;
     description: string;
     externalReference: string;
-    professionalWalletId: string;
     creditCard?: CheckoutPaymentInput["creditCard"];
     creditCardHolderInfo?: CheckoutPaymentInput["creditCardHolderInfo"];
     remoteIp?: string;
@@ -67,6 +71,10 @@ export class PaymentsService {
       );
     }
 
+    const professionalWalletId = await ensureAsaasRecipientWallet(
+      params.professionalUserId
+    );
+
     const asaasPayload: Record<string, unknown> = {
       customer: params.customerId,
       billingType: normalized.billingType,
@@ -74,7 +82,7 @@ export class PaymentsService {
       dueDate: buildDueDate(1),
       description: params.description,
       externalReference: params.externalReference,
-      split: buildAsaasSplit(params.professionalWalletId),
+      split: buildAsaasSplit(professionalWalletId),
     };
 
     if (normalized.billingType === "CREDIT_CARD") {
@@ -158,13 +166,10 @@ export class PaymentsService {
     if (!amountCandidate || amountCandidate <= 0 || listing.aCombinar) {
       throw badRequest("Este serviço não possui valor fixo para checkout.");
     }
-    if (!professional.asaasWalletId) {
-      throw badRequest(
-        "Profissional ainda não configurou conta de recebimento."
-      );
-    }
-
-    const customerId = await this.ensureCustomer(contractorId);
+    const customerId = await ensureAsaasCustomer(
+      contractorId,
+      input.payerProfile
+    );
     const amountGross = Number(amountCandidate);
     const platformFee = Number((amountGross * 0.07).toFixed(2));
     const professionalNet = Number((amountGross - platformFee).toFixed(2));
@@ -176,7 +181,7 @@ export class PaymentsService {
         amountGross,
         description: `Papufy - ${listing.titulo}`,
         externalReference: `${listing.id}:${contractorId}`,
-        professionalWalletId: professional.asaasWalletId,
+        professionalUserId: professional.id,
         creditCard: input.creditCard,
         creditCardHolderInfo: input.creditCardHolderInfo,
         remoteIp: input.remoteIp,
@@ -226,6 +231,7 @@ export class PaymentsService {
     };
   }
 
+  /** Mantido por compatibilidade — delega ao onboarding automático. */
   async createRecipientAccount(
     userId: string,
     data: {
@@ -240,95 +246,34 @@ export class PaymentsService {
       postalCode?: string;
     }
   ) {
-    assertNoError(
-      await supabase.from("User").select("id").eq("id", userId).maybeSingle(),
-      "Usuário não encontrado."
-    );
-
-    const payload = {
-      name: sanitizeText(data.name, 120),
-      email: data.email.trim().toLowerCase(),
-      cpfCnpj: data.cpfCnpj.replace(/\D/g, ""),
-      mobilePhone: sanitizePhone(data.mobilePhone),
-      incomeValue: data.incomeValue,
-      address: data.address,
-      addressNumber: data.addressNumber,
-      province: data.province,
-      postalCode: data.postalCode?.replace(/\D/g, ""),
-    };
-
-    const account = await asaasRequest<{ walletId: string; id: string }>(
-      "/accounts",
-      {
-        method: "POST",
-        body: JSON.stringify(payload),
-      }
-    );
-
-    const updatedUser = assertNoError(
-      await supabase
-        .from("User")
-        .update({
-          cpfCnpj: payload.cpfCnpj,
-          asaasWalletId: account.walletId,
-          updatedAt: new Date().toISOString(),
-        })
-        .eq("id", userId)
-        .select(USER_PAYMENT_SELECT)
-        .single()
-    );
-
-    return {
-      walletId: account.walletId,
-      accountId: account.id,
-      user: updatedUser,
-    };
-  }
-
-  private async ensureCustomer(userId: string) {
-    type PaymentUser = {
-      id: string;
-      nome: string;
-      email: string;
-      telefone: string | null;
-      cpfCnpj: string | null;
-      asaasCustomerId: string | null;
-    };
-
-    const user = assertNoError<PaymentUser>(
-      await supabase
-        .from("User")
-        .select("id, nome, email, telefone, cpfCnpj, asaasCustomerId")
-        .eq("id", userId)
-        .maybeSingle(),
-      "Usuário não encontrado."
-    );
-
-    if (!user.cpfCnpj) {
-      throw badRequest("CPF/CNPJ obrigatório para pagar.");
-    }
-
-    if (user.asaasCustomerId) return user.asaasCustomerId;
-
-    const customer = await asaasRequest<{ id: string }>("/customers", {
-      method: "POST",
-      body: JSON.stringify({
-        name: user.nome,
-        email: user.email,
-        cpfCnpj: String(user.cpfCnpj).replace(/\D/g, ""),
-        mobilePhone: user.telefone ? sanitizePhone(user.telefone) : undefined,
-      }),
-    });
-
     await supabase
       .from("User")
       .update({
-        asaasCustomerId: customer.id,
+        nome: sanitizeText(data.name, 120),
+        cpfCnpj: data.cpfCnpj.replace(/\D/g, ""),
+        telefone: sanitizePhone(data.mobilePhone),
         updatedAt: new Date().toISOString(),
       })
       .eq("id", userId);
 
-    return customer.id;
+    const walletId = await ensureAsaasRecipientWallet(userId, {
+      cpfCnpj: data.cpfCnpj,
+      telefone: data.mobilePhone,
+    });
+
+    const updatedUser = assertNoError(
+      await supabase
+        .from("User")
+        .select(USER_PAYMENT_SELECT)
+        .eq("id", userId)
+        .single()
+    );
+
+    return {
+      walletId,
+      accountId: walletId,
+      user: updatedUser,
+    };
   }
 
   async createCheckout(contractorId: string, input: CreateCheckoutInput) {
@@ -407,11 +352,10 @@ export class PaymentsService {
         .maybeSingle(),
       "Profissional não encontrado."
     );
-    if (!professional.asaasWalletId) {
-      throw badRequest("Profissional ainda não configurou conta de recebimento.");
-    }
-
-    const customerId = await this.ensureCustomer(contractorId);
+    const customerId = await ensureAsaasCustomer(
+      contractorId,
+      input.payerProfile
+    );
     const amountGross = Number(parsedProposal.proposalValue);
     const platformFee = Number((amountGross * 0.07).toFixed(2));
     const professionalNet = Number((amountGross - platformFee).toFixed(2));
@@ -423,7 +367,7 @@ export class PaymentsService {
         amountGross,
         description: `Papufy - ${listing.titulo}`,
         externalReference: `${listing.id}:${contractorId}:${proposal.id}`,
-        professionalWalletId: professional.asaasWalletId,
+        professionalUserId: professional.id,
         creditCard: input.creditCard,
         creditCardHolderInfo: input.creditCardHolderInfo,
         remoteIp: input.remoteIp,

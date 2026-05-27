@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import { ZodError } from "zod";
 import { env } from "../config/env";
+import { PaymentProfileIncompleteError } from "../errors/paymentProfile";
 import { AppError } from "../utils/errors";
 
 export function errorHandler(
@@ -13,6 +14,16 @@ export function errorHandler(
     res.status(400).json({
       error: "Dados inválidos.",
       details: err.flatten().fieldErrors,
+    });
+    return;
+  }
+
+  if (err instanceof PaymentProfileIncompleteError) {
+    res.status(err.statusCode).json({
+      error: err.message,
+      code: err.code,
+      role: err.role,
+      missingFields: err.missingFields,
     });
     return;
   }

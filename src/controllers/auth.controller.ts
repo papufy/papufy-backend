@@ -27,6 +27,7 @@ const loginSchema = z.object({
 
 const profileSchema = z.object({
   nome: z.string().min(2).optional(),
+  cpfCnpj: cpfCnpjSchema.optional(),
   telefone: z.string().optional(),
   cidade: z.string().optional(),
   uf: z.string().length(2).optional(),
