@@ -1,91 +1,34 @@
 import { assertNoError, newId, supabase } from "../lib/db";
+import {
+  asaasRequest,
+  fetchAsaasPixQrCode,
+  mapAsaasPaymentStatus,
+  normalizePixEncodedImage,
+  type AsaasPaymentResponse,
+} from "../lib/asaasClient";
 import type { Tables } from "../types/database";
 import { env } from "../config/env";
 import type { BillingType, TransactionStatus } from "../types/enums";
+import { normalizeListingType } from "../types/enums";
 import { sanitizePhone, sanitizeText } from "../utils/sanitize";
 import { forbidden, badRequest } from "../utils/errors";
 import { parseProposalFields } from "../utils/messageProposal";
+import {
+  buildAsaasSplit,
+  normalizeCheckoutPaymentInput,
+  type CheckoutPaymentInput,
+} from "../utils/paymentCheckout";
 import { publicFileUrl } from "../middleware/upload";
 import { chatService } from "./chat.service";
 
-interface AsaasError {
-  errors?: Array<{ description?: string }>;
-}
-
-interface CreateCheckoutInput {
+interface CreateCheckoutInput extends CheckoutPaymentInput {
   listingId: string;
-  billingType: BillingType;
-  creditCard?: {
-    holderName: string;
-    number: string;
-    expiryMonth: string;
-    expiryYear: string;
-    ccv: string;
-  };
-  creditCardHolderInfo?: {
-    name: string;
-    email: string;
-    cpfCnpj: string;
-    postalCode: string;
-    addressNumber: string;
-    phone: string;
-  };
 }
 
-interface ProposalCheckoutInput {
-  billingType: BillingType;
-  creditCard?: {
-    holderName: string;
-    number: string;
-    expiryMonth: string;
-    expiryYear: string;
-    ccv: string;
-  };
-  creditCardHolderInfo?: {
-    name: string;
-    email: string;
-    cpfCnpj: string;
-    postalCode: string;
-    addressNumber: string;
-    phone: string;
-  };
-}
+type ProposalCheckoutInput = CheckoutPaymentInput;
 
 const USER_PAYMENT_SELECT =
   "id, nome, email, telefone, cidade, uf, curriculoUrl, cpfCnpj, asaasCustomerId, asaasWalletId, createdAt, updatedAt";
-
-async function asaasRequest<T>(
-  path: string,
-  init?: RequestInit & { expectedStatus?: number[] }
-): Promise<T> {
-  const expected = init?.expectedStatus ?? [200, 201];
-  const response = await fetch(`${env.ASAAS_API_URL}${path}`, {
-    method: init?.method ?? "GET",
-    headers: {
-      "Content-Type": "application/json",
-      access_token: env.ASAAS_API_KEY,
-      ...(init?.headers ?? {}),
-    },
-    body: init?.body,
-  });
-
-  const json = (await response.json().catch(() => ({}))) as
-    | T
-    | AsaasError
-    | Record<string, unknown>;
-
-  if (!expected.includes(response.status)) {
-    const message =
-      "errors" in (json as AsaasError) &&
-      Array.isArray((json as AsaasError).errors) &&
-      (json as AsaasError).errors?.[0]?.description
-        ? (json as AsaasError).errors?.[0]?.description
-        : "Erro ao comunicar com Asaas.";
-    throw badRequest(message ?? "Erro ao comunicar com Asaas.");
-  }
-
-  return json as T;
-}
 
 function buildDueDate(daysAhead = 1): string {
   const date = new Date();
@@ -94,6 +37,78 @@ function buildDueDate(daysAhead = 1): string {
 }
 
 export class PaymentsService {
+  private async chargeViaAsaas(params: {
+    customerId: string;
+    billingType: BillingType;
+    amountGross: number;
+    description: string;
+    externalReference: string;
+    professionalWalletId: string;
+    creditCard?: CheckoutPaymentInput["creditCard"];
+    creditCardHolderInfo?: CheckoutPaymentInput["creditCardHolderInfo"];
+    remoteIp?: string;
+  }): Promise<{
+    asaasPayment: AsaasPaymentResponse;
+    pixQrCodeImage?: string;
+    pixCopyPaste?: string;
+    status: TransactionStatus;
+  }> {
+    let normalized: ReturnType<typeof normalizeCheckoutPaymentInput>;
+    try {
+      normalized = normalizeCheckoutPaymentInput({
+        billingType: params.billingType,
+        creditCard: params.creditCard,
+        creditCardHolderInfo: params.creditCardHolderInfo,
+        remoteIp: params.remoteIp,
+      });
+    } catch (err) {
+      throw badRequest(
+        err instanceof Error ? err.message : "Dados de pagamento inválidos."
+      );
+    }
+
+    const asaasPayload: Record<string, unknown> = {
+      customer: params.customerId,
+      billingType: normalized.billingType,
+      value: params.amountGross,
+      dueDate: buildDueDate(1),
+      description: params.description,
+      externalReference: params.externalReference,
+      split: buildAsaasSplit(params.professionalWalletId),
+    };
+
+    if (normalized.billingType === "CREDIT_CARD") {
+      asaasPayload.creditCard = normalized.creditCard;
+      asaasPayload.creditCardHolderInfo = normalized.creditCardHolderInfo;
+      asaasPayload.remoteIp = normalized.remoteIp;
+    }
+
+    const asaasPayment = await asaasRequest<AsaasPaymentResponse>("/payments", {
+      method: "POST",
+      body: JSON.stringify(asaasPayload),
+    });
+
+    let pixQrCodeImage: string | undefined;
+    let pixCopyPaste: string | undefined;
+    if (normalized.billingType === "PIX") {
+      const pix = await fetchAsaasPixQrCode(asaasPayment.id);
+      pixQrCodeImage = normalizePixEncodedImage(pix.encodedImage);
+      pixCopyPaste = pix.payload?.trim() || undefined;
+      if (!pixCopyPaste && !pixQrCodeImage) {
+        throw badRequest(
+          "Cobrança Pix criada, mas o QR Code ainda não está disponível. Tente novamente em instantes."
+        );
+      }
+    }
+
+    return {
+      asaasPayment,
+      pixQrCodeImage,
+      pixCopyPaste,
+      status: mapAsaasPaymentStatus(asaasPayment.status),
+    };
+  }
+
   private async createPaymentForListing(
     contractorId: string,
     input: CreateCheckoutInput,
@@ -130,7 +145,8 @@ export class PaymentsService {
 
     const professional = listing.user;
 
-    if (listing.tipo !== "PROFESSIONAL_PROFILE") {
+    const listingType = normalizeListingType(listing.tipo) ?? listing.tipo;
+    if (listingType !== "PROFESSIONAL_PROFILE") {
       throw badRequest(
         "Pagamento direto só está disponível para perfil profissional."
       );
@@ -153,51 +169,18 @@ export class PaymentsService {
     const platformFee = Number((amountGross * 0.07).toFixed(2));
     const professionalNet = Number((amountGross - platformFee).toFixed(2));
 
-    const asaasPayload: Record<string, unknown> = {
-      customer: customerId,
-      billingType: input.billingType,
-      value: amountGross,
-      dueDate: buildDueDate(1),
-      description: `Papufy - ${listing.titulo}`,
-      externalReference: `${listing.id}:${contractorId}`,
-      split: [
-        {
-          walletId: professional.asaasWalletId,
-          percentualValue: 93.0,
-        },
-      ],
-    };
-
-    if (input.billingType === "CREDIT_CARD") {
-      asaasPayload.creditCard = input.creditCard;
-      asaasPayload.creditCardHolderInfo = input.creditCardHolderInfo;
-      asaasPayload.remoteIp = "127.0.0.1";
-    }
-
-    const asaasPayment = await asaasRequest<{
-      id: string;
-      status: string;
-      invoiceUrl?: string;
-      bankSlipUrl?: string;
-      dueDate?: string;
-    }>("/payments", {
-      method: "POST",
-      body: JSON.stringify(asaasPayload),
-    });
-
-    let pixQrCodeImage: string | undefined;
-    let pixCopyPaste: string | undefined;
-    if (input.billingType === "PIX") {
-      const pix = await asaasRequest<{ encodedImage?: string; payload?: string }>(
-        `/payments/${asaasPayment.id}/pixQrCode`,
-        { expectedStatus: [200] }
-      );
-      pixQrCodeImage = pix.encodedImage;
-      pixCopyPaste = pix.payload;
-    }
-
-    const status: TransactionStatus =
-      asaasPayment.status === "RECEIVED" ? "PAID" : "PENDING";
+    const { asaasPayment, pixQrCodeImage, pixCopyPaste, status } =
+      await this.chargeViaAsaas({
+        customerId,
+        billingType: input.billingType,
+        amountGross,
+        description: `Papufy - ${listing.titulo}`,
+        externalReference: `${listing.id}:${contractorId}`,
+        professionalWalletId: professional.asaasWalletId,
+        creditCard: input.creditCard,
+        creditCardHolderInfo: input.creditCardHolderInfo,
+        remoteIp: input.remoteIp,
+      });
 
     const transaction = assertNoError<Tables<"Transaction">>(
       await supabase
@@ -433,51 +416,19 @@ export class PaymentsService {
     const platformFee = Number((amountGross * 0.07).toFixed(2));
     const professionalNet = Number((amountGross - platformFee).toFixed(2));
 
-    const asaasPayload: Record<string, unknown> = {
-      customer: customerId,
-      billingType: input.billingType,
-      value: amountGross,
-      dueDate: buildDueDate(1),
-      description: `Papufy - ${listing.titulo}`,
-      externalReference: `${listing.id}:${contractorId}:${proposal.id}`,
-      split: [
-        {
-          walletId: professional.asaasWalletId,
-          percentualValue: 93.0,
-        },
-      ],
-    };
+    const { asaasPayment, pixQrCodeImage, pixCopyPaste, status } =
+      await this.chargeViaAsaas({
+        customerId,
+        billingType: input.billingType,
+        amountGross,
+        description: `Papufy - ${listing.titulo}`,
+        externalReference: `${listing.id}:${contractorId}:${proposal.id}`,
+        professionalWalletId: professional.asaasWalletId,
+        creditCard: input.creditCard,
+        creditCardHolderInfo: input.creditCardHolderInfo,
+        remoteIp: input.remoteIp,
+      });
 
-    if (input.billingType === "CREDIT_CARD") {
-      asaasPayload.creditCard = input.creditCard;
-      asaasPayload.creditCardHolderInfo = input.creditCardHolderInfo;
-      asaasPayload.remoteIp = "127.0.0.1";
-    }
-
-    const asaasPayment = await asaasRequest<{
-      id: string;
-      status: string;
-      invoiceUrl?: string;
-      bankSlipUrl?: string;
-      dueDate?: string;
-    }>("/payments", {
-      method: "POST",
-      body: JSON.stringify(asaasPayload),
-    });
-
-    let pixQrCodeImage: string | undefined;
-    let pixCopyPaste: string | undefined;
-    if (input.billingType === "PIX") {
-      const pix = await asaasRequest<{ encodedImage?: string; payload?: string }>(
-        `/payments/${asaasPayment.id}/pixQrCode`,
-        { expectedStatus: [200] }
-      );
-      pixQrCodeImage = pix.encodedImage;
-      pixCopyPaste = pix.payload;
-    }
-
-    const status: TransactionStatus =
-      asaasPayment.status === "RECEIVED" ? "PAID" : "PENDING";
     const transaction = assertNoError<Tables<"Transaction">>(
       await supabase
         .from("Transaction")

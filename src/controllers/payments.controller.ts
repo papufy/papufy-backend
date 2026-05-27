@@ -17,52 +17,71 @@ const onboardingSchema = z.object({
   postalCode: z.string().optional(),
 });
 
-const checkoutSchema = z.object({
-  listingId: z.string().uuid(),
-  billingType: z.enum(BillingTypeValues),
-  creditCard: z
-    .object({
-      holderName: z.string(),
-      number: z.string(),
-      expiryMonth: z.string(),
-      expiryYear: z.string(),
-      ccv: z.string(),
-    })
-    .optional(),
-  creditCardHolderInfo: z
-    .object({
-      name: z.string(),
-      email: z.string().email(),
-      cpfCnpj: z.string(),
-      postalCode: z.string(),
-      addressNumber: z.string(),
-      phone: z.string(),
-    })
-    .optional(),
+const creditCardSchema = z.object({
+  holderName: z.string().min(3),
+  number: z.string().min(13),
+  expiryMonth: z.string().min(1).max(2),
+  expiryYear: z.string().min(2).max(4),
+  ccv: z.string().min(3).max(4),
 });
 
-const proposalCheckoutSchema = z.object({
-  billingType: z.enum(BillingTypeValues),
-  creditCard: z
-    .object({
-      holderName: z.string(),
-      number: z.string(),
-      expiryMonth: z.string(),
-      expiryYear: z.string(),
-      ccv: z.string(),
-    })
-    .optional(),
-  creditCardHolderInfo: z
-    .object({
-      name: z.string(),
-      email: z.string().email(),
-      cpfCnpj: z.string(),
-      postalCode: z.string(),
-      addressNumber: z.string(),
-      phone: z.string(),
-    })
-    .optional(),
+const creditCardHolderSchema = z.object({
+  name: z.string().min(3),
+  email: z.string().email(),
+  cpfCnpj: z.string().min(11),
+  postalCode: z.string().min(8),
+  addressNumber: z.string().min(1),
+  phone: z.string().min(8),
 });
+
+const checkoutSchema = z
+  .object({
+    listingId: z.string().uuid(),
+    billingType: z.enum(BillingTypeValues),
+    creditCard: creditCardSchema.optional(),
+    creditCardHolderInfo: creditCardHolderSchema.optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.billingType !== "CREDIT_CARD") return;
+    if (!data.creditCard) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Dados do cartão são obrigatórios.",
+        path: ["creditCard"],
+      });
+    }
+    if (!data.creditCardHolderInfo) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Dados do titular são obrigatórios.",
+        path: ["creditCardHolderInfo"],
+      });
+    }
+  });
+
+const proposalCheckoutSchema = z
+  .object({
+    billingType: z.enum(BillingTypeValues),
+    creditCard: creditCardSchema.optional(),
+    creditCardHolderInfo: creditCardHolderSchema.optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.billingType !== "CREDIT_CARD") return;
+    if (!data.creditCard) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Dados do cartão são obrigatórios.",
+        path: ["creditCard"],
+      });
+    }
+    if (!data.creditCardHolderInfo) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Dados do titular são obrigatórios.",
+        path: ["creditCardHolderInfo"],
+      });
+    }
+  });
 
 const reportSchema = z.object({
   descricao: z.string().min(10).max(2000),
@@ -78,6 +97,17 @@ function assertPaymentsEnabled(): void {
       "Pagamentos não configurados. Defina ASAAS_API_URL e ASAAS_API_KEY no Render."
     );
   }
+}
+
+function resolveClientIp(req: Request): string {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.trim()) {
+    return forwarded.split(",")[0]?.trim() ?? "127.0.0.1";
+  }
+  if (Array.isArray(forwarded) && forwarded[0]) {
+    return String(forwarded[0]).split(",")[0]?.trim() ?? "127.0.0.1";
+  }
+  return req.socket.remoteAddress ?? "127.0.0.1";
 }
 
 export class PaymentsController {
@@ -99,7 +129,10 @@ export class PaymentsController {
     try {
       assertPaymentsEnabled();
       const body = checkoutSchema.parse(req.body);
-      const result = await paymentsService.createCheckout(req.userId!, body);
+      const result = await paymentsService.createCheckout(req.userId!, {
+        ...body,
+        remoteIp: resolveClientIp(req),
+      });
       res.status(201).json(result);
     } catch (err) {
       next(err);
@@ -114,7 +147,7 @@ export class PaymentsController {
       const result = await paymentsService.createCheckoutFromProposal(
         req.userId!,
         messageId,
-        body
+        { ...body, remoteIp: resolveClientIp(req) }
       );
       res.status(201).json(result);
     } catch (err) {
@@ -183,7 +216,10 @@ export class PaymentsController {
     try {
       assertPaymentsEnabled();
       const transactionId = String(req.params.id);
-      const result = await paymentsService.confirmCompletion(transactionId, req.userId!);
+      const result = await paymentsService.confirmCompletion(
+        transactionId,
+        req.userId!
+      );
       res.json(result);
     } catch (err) {
       next(err);
