@@ -53,6 +53,19 @@ export class ChatController {
     }
   }
 
+  async sendProposal(req: Request, res: Response, next: NextFunction) {
+    try {
+      const id = String(req.params.id);
+      const { value } = z
+        .object({ value: z.coerce.number().positive() })
+        .parse(req.body);
+      const message = await chatService.createProposal(id, req.userId!, value);
+      res.status(201).json({ message });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async unreadCount(req: Request, res: Response, next: NextFunction) {
     try {
       const count = await chatService.getUnreadCount(req.userId!);

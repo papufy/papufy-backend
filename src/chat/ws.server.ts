@@ -109,6 +109,7 @@ export function setupWebSocket(server: Server) {
           type: string;
           conversationId?: string;
           content?: string;
+          value?: number;
         };
 
         if (data.type === "join" && data.conversationId) {
@@ -157,6 +158,34 @@ export function setupWebSocket(server: Server) {
             type: "message",
             message: { ...message, isMine: true },
           });
+          return;
+        }
+
+        if (
+          data.type === "proposal" &&
+          data.conversationId &&
+          typeof data.value === "number"
+        ) {
+          const proposal = await chatService.createProposal(
+            data.conversationId,
+            socket.userId,
+            data.value
+          );
+          broadcastToConversation(data.conversationId, {
+            type: "message",
+            message: proposal,
+          });
+          const conversation = await chatService.assertParticipant(
+            data.conversationId,
+            socket.userId
+          );
+          if (conversation) {
+            const otherId =
+              conversation.contractorId === socket.userId
+                ? conversation.providerId
+                : conversation.contractorId;
+            await broadcastUnread(otherId);
+          }
           return;
         }
       } catch (err) {

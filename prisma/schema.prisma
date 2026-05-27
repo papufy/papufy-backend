@@ -27,8 +27,21 @@ enum ListingStatus {
 enum TransactionStatus {
   PENDING
   PAID
+  IN_DISPUTE
   FAILED
   CANCELED
+}
+
+enum MessageType {
+  TEXT
+  PROPOSAL
+  SYSTEM
+}
+
+enum SupportTicketStatus {
+  ABERTO
+  EM_ANALISE
+  RESOLVIDO
 }
 
 enum BillingType {
@@ -59,6 +72,7 @@ model User {
   professionalTransactions Transaction[] @relation("ProfessionalTransactions")
   contractorConversations Conversation[] @relation("ContractorConversations")
   providerConversations   Conversation[] @relation("ProviderConversations")
+  supportTickets          SupportTicket[]
 }
 
 model Certificate {
@@ -93,6 +107,7 @@ model Listing {
   images    ListingImage[]
   conversations Conversation[]
   transactions Transaction[]
+  supportTickets SupportTicket[]
 
   @@index([listingType])
   @@index([categoria])
@@ -191,6 +206,8 @@ model Transaction {
   listing          Listing           @relation(fields: [listingId], references: [id], onDelete: Cascade)
   contractor       User              @relation("ContractorTransactions", fields: [contractorId], references: [id], onDelete: Cascade)
   professional     User              @relation("ProfessionalTransactions", fields: [professionalId], references: [id], onDelete: Cascade)
+  messages         Message[]
+  supportTickets   SupportTicket[]
 
   @@index([listingId])
   @@index([contractorId])
@@ -203,10 +220,33 @@ model Message {
   conversationId String
   senderId       String
   content        String
+  type           MessageType   @default(TEXT)
+  proposalValue  Float?
+  transactionId  String?
   readAt         DateTime?
   createdAt      DateTime     @default(now())
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   sender         User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  transaction    Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
 
   @@index([conversationId, createdAt])
+  @@index([transactionId])
+}
+
+model SupportTicket {
+  id            String             @id @default(cuid())
+  transactionId String?
+  conversationId String?
+  reporterId    String
+  descricao     String
+  comprovanteUrl String?
+  status        SupportTicketStatus @default(ABERTO)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  transaction   Transaction?       @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  reporter      User               @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+  @@index([transactionId])
+  @@index([reporterId])
+  @@index([status])
 }

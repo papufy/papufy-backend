@@ -41,6 +41,14 @@ const checkoutSchema = z.object({
     .optional(),
 });
 
+const proposalCheckoutSchema = z.object({
+  billingType: z.enum(BillingTypeValues),
+});
+
+const reportSchema = z.object({
+  descricao: z.string().min(10).max(2000),
+});
+
 function assertPaymentsEnabled(): void {
   if (!env.paymentsEnabled) {
     throw badRequest(
@@ -75,6 +83,18 @@ export class PaymentsController {
     }
   }
 
+  async checkoutFromProposal(req: Request, res: Response, next: NextFunction) {
+    try {
+      assertPaymentsEnabled();
+      const messageId = String(req.params.messageId);
+      const { billingType } = proposalCheckoutSchema.parse(req.body);
+      const result = await paymentsService.createCheckoutFromProposal(req.userId!, messageId, billingType);
+      res.status(201).json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async transactionStatus(req: Request, res: Response, next: NextFunction) {
     try {
       assertPaymentsEnabled();
@@ -99,6 +119,24 @@ export class PaymentsController {
 
       const result = await paymentsService.handleWebhook(req.body ?? {});
       res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async reportProblem(req: Request, res: Response, next: NextFunction) {
+    try {
+      assertPaymentsEnabled();
+      const transactionId = String(req.params.id);
+      const { descricao } = reportSchema.parse(req.body);
+      const file = req.file;
+      const result = await paymentsService.reportTransactionProblem({
+        transactionId,
+        reporterId: req.userId!,
+        descricao,
+        comprovanteFilename: file?.filename,
+      });
+      res.status(201).json(result);
     } catch (err) {
       next(err);
     }

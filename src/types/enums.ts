@@ -2,7 +2,12 @@ export type JobStatus = "OPEN" | "CLOSED";
 export type ListingType = "BICO" | "PRODUTO";
 export type ListingStatus = "OPEN" | "CLOSED" | "IN_PROGRESS";
 export type BillingType = "PIX" | "CREDIT_CARD";
-export type TransactionStatus = "PENDING" | "PAID" | "FAILED" | "CANCELED";
+export type TransactionStatus =
+  | "PENDING"
+  | "PAID"
+  | "IN_DISPUTE"
+  | "FAILED"
+  | "CANCELED";
 
 export type ApiListingType = "JOB_VACANCY" | "PROFESSIONAL_PROFILE";
 
@@ -13,6 +18,7 @@ export const BillingTypeValues = ["PIX", "CREDIT_CARD"] as const;
 export const TransactionStatusValues = [
   "PENDING",
   "PAID",
+  "IN_DISPUTE",
   "FAILED",
   "CANCELED",
 ] as const;

@@ -36,6 +36,13 @@ chatRoutes.post(
 );
 
 chatRoutes.post(
+  "/conversations/:id/proposal",
+  validateResourceId(),
+  messageLimiter,
+  (req, res, next) => chatController.sendProposal(req, res, next)
+);
+
+chatRoutes.post(
   "/listings/:id/start",
   validateResourceId(),
   (req, res, next) => chatController.startListingConversation(req, res, next)

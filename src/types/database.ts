@@ -301,24 +301,33 @@ export type Database = {
           conversationId: string;
           createdAt: string;
           id: string;
+          proposalValue: number | null;
           readAt: string | null;
           senderId: string;
+          transactionId: string | null;
+          type: string;
         };
         Insert: {
           content: string;
           conversationId: string;
           createdAt?: string;
           id: string;
+          proposalValue?: number | null;
           readAt?: string | null;
           senderId: string;
+          transactionId?: string | null;
+          type?: string;
         };
         Update: {
           content?: string;
           conversationId?: string;
           createdAt?: string;
           id?: string;
+          proposalValue?: number | null;
           readAt?: string | null;
           senderId?: string;
+          transactionId?: string | null;
+          type?: string;
         };
         Relationships: [
           {
@@ -331,6 +340,64 @@ export type Database = {
           {
             foreignKeyName: "Message_senderId_fkey";
             columns: ["senderId"];
+            isOneToOne: false;
+            referencedRelation: "User";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "Message_transactionId_fkey";
+            columns: ["transactionId"];
+            isOneToOne: false;
+            referencedRelation: "Transaction";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      SupportTicket: {
+        Row: {
+          id: string;
+          transactionId: string | null;
+          conversationId: string | null;
+          reporterId: string;
+          descricao: string;
+          comprovanteUrl: string | null;
+          status: Database["public"]["Enums"]["SupportTicketStatus"];
+          createdAt: string;
+          updatedAt: string;
+        };
+        Insert: {
+          id: string;
+          transactionId?: string | null;
+          conversationId?: string | null;
+          reporterId: string;
+          descricao: string;
+          comprovanteUrl?: string | null;
+          status?: Database["public"]["Enums"]["SupportTicketStatus"];
+          createdAt?: string;
+          updatedAt?: string;
+        };
+        Update: {
+          id?: string;
+          transactionId?: string | null;
+          conversationId?: string | null;
+          reporterId?: string;
+          descricao?: string;
+          comprovanteUrl?: string | null;
+          status?: Database["public"]["Enums"]["SupportTicketStatus"];
+          createdAt?: string;
+          updatedAt?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "SupportTicket_transactionId_fkey";
+            columns: ["transactionId"];
+            isOneToOne: false;
+            referencedRelation: "Transaction";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "SupportTicket_reporterId_fkey";
+            columns: ["reporterId"];
             isOneToOne: false;
             referencedRelation: "User";
             referencedColumns: ["id"];
@@ -482,7 +549,13 @@ export type Database = {
       JobStatus: "OPEN" | "CLOSED";
       ListingStatus: "OPEN" | "CLOSED" | "IN_PROGRESS";
       ListingType: "BICO" | "PRODUTO";
-      TransactionStatus: "PENDING" | "PAID" | "FAILED" | "CANCELED";
+      TransactionStatus:
+        | "PENDING"
+        | "PAID"
+        | "IN_DISPUTE"
+        | "FAILED"
+        | "CANCELED";
+      SupportTicketStatus: "ABERTO" | "EM_ANALISE" | "RESOLVIDO";
     };
     CompositeTypes: {
       [_ in never]: never;
