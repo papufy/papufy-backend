@@ -31,6 +31,25 @@ interface CreateCheckoutInput {
   };
 }
 
+interface ProposalCheckoutInput {
+  billingType: BillingType;
+  creditCard?: {
+    holderName: string;
+    number: string;
+    expiryMonth: string;
+    expiryYear: string;
+    ccv: string;
+  };
+  creditCardHolderInfo?: {
+    name: string;
+    email: string;
+    cpfCnpj: string;
+    postalCode: string;
+    addressNumber: string;
+    phone: string;
+  };
+}
+
 const USER_PAYMENT_SELECT =
   "id, nome, email, telefone, cidade, uf, curriculoUrl, cpfCnpj, asaasCustomerId, asaasWalletId, createdAt, updatedAt";
 
@@ -333,7 +352,7 @@ export class PaymentsService {
   async createCheckoutFromProposal(
     contractorId: string,
     messageId: string,
-    billingType: BillingType
+    input: ProposalCheckoutInput
   ) {
     const proposal = assertNoError<
       Pick<
@@ -364,20 +383,134 @@ export class PaymentsService {
     if (!conversation.listingId) {
       throw badRequest("Proposta não vinculada a anúncio.");
     }
-    if (conversation.contractorId !== contractorId) {
-      throw forbidden("Somente o contratante pode pagar a proposta.");
-    }
-    const checkout = await this.createPaymentForListing(
-      contractorId,
-      { listingId: conversation.listingId, billingType },
-      proposal.proposalValue
+
+    const listing = assertNoError<
+      Pick<Tables<"Listing">, "id" | "userId" | "titulo">
+    >(
+      await supabase
+        .from("Listing")
+        .select("id, userId, titulo")
+        .eq("id", conversation.listingId)
+        .maybeSingle(),
+      "Anúncio não encontrado."
     );
+    if (listing.userId !== contractorId) {
+      throw forbidden("Somente quem criou o anúncio pode pagar a proposta.");
+    }
+    if (proposal.senderId === contractorId) {
+      throw badRequest("Você não pode pagar a sua própria proposta.");
+    }
+
+    const professional = assertNoError<
+      Pick<Tables<"User">, "id" | "nome" | "email" | "telefone" | "asaasWalletId">
+    >(
+      await supabase
+        .from("User")
+        .select("id, nome, email, telefone, asaasWalletId")
+        .eq("id", proposal.senderId)
+        .maybeSingle(),
+      "Profissional não encontrado."
+    );
+    if (!professional.asaasWalletId) {
+      throw badRequest("Profissional ainda não configurou conta de recebimento.");
+    }
+
+    const customerId = await this.ensureCustomer(contractorId);
+    const amountGross = Number(proposal.proposalValue);
+    const platformFee = Number((amountGross * 0.07).toFixed(2));
+    const professionalNet = Number((amountGross - platformFee).toFixed(2));
+
+    const asaasPayload: Record<string, unknown> = {
+      customer: customerId,
+      billingType: input.billingType,
+      value: amountGross,
+      dueDate: buildDueDate(1),
+      description: `Papufy - ${listing.titulo}`,
+      externalReference: `${listing.id}:${contractorId}:${proposal.id}`,
+      split: [
+        {
+          walletId: professional.asaasWalletId,
+          percentualValue: 93.0,
+        },
+      ],
+    };
+
+    if (input.billingType === "CREDIT_CARD") {
+      asaasPayload.creditCard = input.creditCard;
+      asaasPayload.creditCardHolderInfo = input.creditCardHolderInfo;
+      asaasPayload.remoteIp = "127.0.0.1";
+    }
+
+    const asaasPayment = await asaasRequest<{
+      id: string;
+      status: string;
+      invoiceUrl?: string;
+      bankSlipUrl?: string;
+      dueDate?: string;
+    }>("/payments", {
+      method: "POST",
+      body: JSON.stringify(asaasPayload),
+    });
+
+    let pixQrCodeImage: string | undefined;
+    let pixCopyPaste: string | undefined;
+    if (input.billingType === "PIX") {
+      const pix = await asaasRequest<{ encodedImage?: string; payload?: string }>(
+        `/payments/${asaasPayment.id}/pixQrCode`,
+        { expectedStatus: [200] }
+      );
+      pixQrCodeImage = pix.encodedImage;
+      pixCopyPaste = pix.payload;
+    }
+
+    const status: TransactionStatus =
+      asaasPayment.status === "RECEIVED" ? "PAID" : "PENDING";
+    const transaction = assertNoError<Tables<"Transaction">>(
+      await supabase
+        .from("Transaction")
+        .insert({
+          id: newId(),
+          listingId: listing.id,
+          contractorId,
+          professionalId: professional.id,
+          asaasPaymentId: asaasPayment.id,
+          amountGross,
+          platformFee,
+          professionalNet,
+          billingType: input.billingType,
+          status,
+          pixQrCodeImage: pixQrCodeImage ?? null,
+          pixCopyPaste: pixCopyPaste ?? null,
+          invoiceUrl: asaasPayment.invoiceUrl ?? asaasPayment.bankSlipUrl ?? null,
+          paymentLink: asaasPayment.invoiceUrl ?? null,
+          dueDate: asaasPayment.dueDate
+            ? new Date(asaasPayment.dueDate).toISOString()
+            : null,
+          paidAt: status === "PAID" ? new Date().toISOString() : null,
+          updatedAt: new Date().toISOString(),
+        })
+        .select()
+        .single()
+    );
+
     await supabase
       .from("Message")
-      .update({ transactionId: checkout.transaction.id })
+      .update({ transactionId: transaction.id })
       .eq("id", messageId);
+    if (status === "PAID") {
+      await supabase
+        .from("Listing")
+        .update({ status: "IN_PROGRESS", updatedAt: new Date().toISOString() })
+        .eq("id", listing.id);
+    }
 
-    return checkout;
+    return {
+      transaction,
+      pix: {
+        encodedImage: pixQrCodeImage,
+        payload: pixCopyPaste,
+      },
+    };
   }
 
   async getTransactionStatus(transactionId: string, userId: string) {
@@ -395,6 +528,142 @@ export class PaymentsService {
     }
 
     return tx;
+  }
+
+  async listMyTransactions(userId: string) {
+    const transactions = assertNoError(
+      await supabase
+        .from("Transaction")
+        .select(
+          `*,
+           listing:Listing!Transaction_listingId_fkey(id, titulo),
+           contractor:User!Transaction_contractorId_fkey(id, nome),
+           professional:User!Transaction_professionalId_fkey(id, nome)`
+        )
+        .or(`contractorId.eq.${userId},professionalId.eq.${userId}`)
+        .order("createdAt", { ascending: false })
+    );
+    return { transactions };
+  }
+
+  async confirmCompletion(transactionId: string, userId: string) {
+    const tx = assertNoError<Tables<"Transaction">>(
+      await supabase
+        .from("Transaction")
+        .select("*")
+        .eq("id", transactionId)
+        .maybeSingle(),
+      "Transação não encontrada."
+    );
+    if (tx.contractorId !== userId && tx.professionalId !== userId) {
+      throw forbidden("Sem permissão para confirmar esta transação.");
+    }
+    if (tx.status !== "PAID" && tx.status !== "RELEASED") {
+      throw badRequest("Transação ainda não está apta para confirmação.");
+    }
+
+    const patch: Partial<Tables<"Transaction">> = {
+      updatedAt: new Date().toISOString(),
+    };
+    if (tx.contractorId === userId && !tx.contractorConfirmedAt) {
+      patch.contractorConfirmedAt = new Date().toISOString();
+    }
+    if (tx.professionalId === userId && !tx.professionalConfirmedAt) {
+      patch.professionalConfirmedAt = new Date().toISOString();
+    }
+
+    const updated = assertNoError<Tables<"Transaction">>(
+      await supabase
+        .from("Transaction")
+        .update(patch)
+        .eq("id", transactionId)
+        .select("*")
+        .single()
+    );
+
+    let finalTx = updated;
+    if (updated.contractorConfirmedAt && updated.professionalConfirmedAt) {
+      finalTx = assertNoError<Tables<"Transaction">>(
+        await supabase
+          .from("Transaction")
+          .update({
+            status: "RELEASED",
+            releasedAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          })
+          .eq("id", transactionId)
+          .select("*")
+          .single()
+      );
+
+      const conversation = await supabase
+        .from("Conversation")
+        .select("id")
+        .eq("listingId", tx.listingId)
+        .eq("contractorId", tx.contractorId)
+        .eq("providerId", tx.professionalId)
+        .maybeSingle();
+      if (conversation.data?.id) {
+        await chatService.sendSystemMessage(
+          conversation.data.id,
+          "Ambas as partes confirmaram o serviço. Pagamento liberado para saque do profissional."
+        );
+      }
+    }
+
+    return { transaction: finalTx };
+  }
+
+  async withdrawViaPix(input: {
+    transactionId: string;
+    professionalId: string;
+    pixKey: string;
+  }) {
+    const tx = assertNoError<Tables<"Transaction">>(
+      await supabase
+        .from("Transaction")
+        .select("*")
+        .eq("id", input.transactionId)
+        .maybeSingle(),
+      "Transação não encontrada."
+    );
+    if (tx.professionalId !== input.professionalId) {
+      throw forbidden("Somente o profissional pode sacar esta transação.");
+    }
+    if (tx.status !== "RELEASED") {
+      throw badRequest("Saque disponível apenas para pagamentos liberados.");
+    }
+    if (tx.withdrawnAt) {
+      throw badRequest("Esta transação já foi sacada.");
+    }
+
+    const transfer = await asaasRequest<{ id: string }>("/transfers", {
+      method: "POST",
+      body: JSON.stringify({
+        value: tx.professionalNet,
+        operationType: "PIX",
+        pixAddressKey: input.pixKey,
+        description: `Saque Papufy ${tx.id}`,
+      }),
+      expectedStatus: [200, 201],
+    });
+
+    const updated = assertNoError<Tables<"Transaction">>(
+      await supabase
+        .from("Transaction")
+        .update({
+          status: "WITHDRAWN",
+          withdrawnAt: new Date().toISOString(),
+          withdrawPixKey: sanitizeText(input.pixKey, 120),
+          withdrawTransferId: transfer.id,
+          updatedAt: new Date().toISOString(),
+        })
+        .eq("id", tx.id)
+        .select("*")
+        .single()
+    );
+
+    return { transaction: updated, transferId: transfer.id };
   }
 
   async handleWebhook(payload: { event?: string; payment?: { id?: string } }) {

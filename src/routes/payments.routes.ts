@@ -24,6 +24,10 @@ paymentsRoutes.post("/proposals/:messageId/checkout", requireAuth, (req, res, ne
   paymentsController.checkoutFromProposal(req, res, next)
 );
 
+paymentsRoutes.get("/transactions/mine", requireAuth, (req, res, next) =>
+  paymentsController.listMyTransactions(req, res, next)
+);
+
 paymentsRoutes.get("/transactions/:id/status", requireAuth, (req, res, next) =>
   paymentsController.transactionStatus(req, res, next)
 );
@@ -34,5 +38,13 @@ paymentsRoutes.post(
   uploadSupportProof,
   validateSupportProofUpload,
   (req, res, next) => paymentsController.reportProblem(req, res, next)
+);
+
+paymentsRoutes.post("/transactions/:id/confirm-completion", requireAuth, (req, res, next) =>
+  paymentsController.confirmCompletion(req, res, next)
+);
+
+paymentsRoutes.post("/transactions/:id/withdraw", requireAuth, (req, res, next) =>
+  paymentsController.withdraw(req, res, next)
 );
 

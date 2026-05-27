@@ -6,6 +6,8 @@ export type TransactionStatus =
   | "PENDING"
   | "PAID"
   | "IN_DISPUTE"
+  | "RELEASED"
+  | "WITHDRAWN"
   | "FAILED"
   | "CANCELED";
 
@@ -19,6 +21,8 @@ export const TransactionStatusValues = [
   "PENDING",
   "PAID",
   "IN_DISPUTE",
+  "RELEASED",
+  "WITHDRAWN",
   "FAILED",
   "CANCELED",
 ] as const;

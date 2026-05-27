@@ -107,9 +107,8 @@ export class ChatService {
       throw error;
     }
 
-    const isProfessional = listing.tipo === "PRODUTO";
-    const contractorId = isProfessional ? userId : listing.userId;
-    const providerId = isProfessional ? listing.userId : userId;
+    const contractorId = listing.userId;
+    const providerId = userId;
 
     const { data: existing } = await supabase
       .from("Conversation")
@@ -411,24 +410,21 @@ export class ChatService {
       "Conversa não encontrada."
     );
     this.ensureParticipant(conversation, senderId);
-    if (conversation.providerId !== senderId) {
-      throw forbidden("Somente o profissional pode enviar proposta.");
-    }
     if (!conversation.listingId) {
       throw forbidden("Proposta disponível apenas para conversa de anúncio.");
     }
     const listing = assertNoError<
-      Pick<Tables<"Listing">, "id" | "tipo" | "titulo">
+      Pick<Tables<"Listing">, "id" | "userId">
     >(
       await supabase
         .from("Listing")
-        .select("id, tipo, titulo")
+        .select("id, userId")
         .eq("id", conversation.listingId)
         .maybeSingle(),
       "Anúncio não encontrado."
     );
-    if (listing.tipo !== "PRODUTO") {
-      throw forbidden("Proposta financeira disponível apenas para perfil profissional.");
+    if (listing.userId === senderId) {
+      throw forbidden("Somente quem executa o serviço pode enviar proposta.");
     }
 
     const message = assertNoError<MessageWithSender>(

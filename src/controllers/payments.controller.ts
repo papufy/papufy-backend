@@ -43,10 +43,33 @@ const checkoutSchema = z.object({
 
 const proposalCheckoutSchema = z.object({
   billingType: z.enum(BillingTypeValues),
+  creditCard: z
+    .object({
+      holderName: z.string(),
+      number: z.string(),
+      expiryMonth: z.string(),
+      expiryYear: z.string(),
+      ccv: z.string(),
+    })
+    .optional(),
+  creditCardHolderInfo: z
+    .object({
+      name: z.string(),
+      email: z.string().email(),
+      cpfCnpj: z.string(),
+      postalCode: z.string(),
+      addressNumber: z.string(),
+      phone: z.string(),
+    })
+    .optional(),
 });
 
 const reportSchema = z.object({
   descricao: z.string().min(10).max(2000),
+});
+
+const withdrawSchema = z.object({
+  pixKey: z.string().min(3).max(120),
 });
 
 function assertPaymentsEnabled(): void {
@@ -87,8 +110,12 @@ export class PaymentsController {
     try {
       assertPaymentsEnabled();
       const messageId = String(req.params.messageId);
-      const { billingType } = proposalCheckoutSchema.parse(req.body);
-      const result = await paymentsService.createCheckoutFromProposal(req.userId!, messageId, billingType);
+      const body = proposalCheckoutSchema.parse(req.body);
+      const result = await paymentsService.createCheckoutFromProposal(
+        req.userId!,
+        messageId,
+        body
+      );
       res.status(201).json(result);
     } catch (err) {
       next(err);
@@ -101,6 +128,16 @@ export class PaymentsController {
       const id = String(req.params.id);
       const tx = await paymentsService.getTransactionStatus(id, req.userId!);
       res.json({ transaction: tx });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async listMyTransactions(req: Request, res: Response, next: NextFunction) {
+    try {
+      assertPaymentsEnabled();
+      const data = await paymentsService.listMyTransactions(req.userId!);
+      res.json(data);
     } catch (err) {
       next(err);
     }
@@ -137,6 +174,33 @@ export class PaymentsController {
         comprovanteFilename: file?.filename,
       });
       res.status(201).json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async confirmCompletion(req: Request, res: Response, next: NextFunction) {
+    try {
+      assertPaymentsEnabled();
+      const transactionId = String(req.params.id);
+      const result = await paymentsService.confirmCompletion(transactionId, req.userId!);
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async withdraw(req: Request, res: Response, next: NextFunction) {
+    try {
+      assertPaymentsEnabled();
+      const transactionId = String(req.params.id);
+      const { pixKey } = withdrawSchema.parse(req.body);
+      const result = await paymentsService.withdrawViaPix({
+        transactionId,
+        professionalId: req.userId!,
+        pixKey,
+      });
+      res.json(result);
     } catch (err) {
       next(err);
     }
