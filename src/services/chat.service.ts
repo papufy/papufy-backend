@@ -402,7 +402,7 @@ export class ChatService {
   }
 
   private async safeSelect<T>(
-    query: Promise<{ data: T | null; error: { message: string } | null }>
+    query: PromiseLike<{ data: T | null; error: { message: string } | null }>
   ): Promise<T extends Array<infer _Item> ? T : never> {
     const result = await query;
     if (result.error || !result.data) {
