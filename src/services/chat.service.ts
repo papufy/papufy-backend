@@ -206,12 +206,17 @@ export class ChatService {
     }
 
     const convIds = conversations.map((c) => c.id);
-    const lastByConv = await this.fetchLastMessageByConversation(convIds);
-    const unreadByConv = await this.fetchUnreadCountByConversation(userId, convIds);
+    const [lastByConv, unreadByConv] = await Promise.all([
+      this.fetchLastMessageByConversation(convIds),
+      this.fetchUnreadCountByConversation(userId, convIds),
+    ]);
 
     return conversations.map((c) => {
-      const other =
-        c.contractorId === userId ? c.provider : c.contractor;
+      const fallbackContractor = { id: c.contractorId, nome: "Usuário" };
+      const fallbackProvider = { id: c.providerId, nome: "Usuário" };
+      const contractor = c.contractor ?? fallbackContractor;
+      const provider = c.provider ?? fallbackProvider;
+      const other = c.contractorId === userId ? provider : contractor;
       const last = lastByConv.get(c.id) ?? null;
       const unread = unreadByConv.get(c.id) ?? 0;
       const parsedLast = last
@@ -233,7 +238,7 @@ export class ChatService {
         listingType: c.Listing?.tipo ?? undefined,
         jobTitulo: c.Job?.titulo ?? c.Listing?.titulo ?? "Conversa",
         jobCategoria: c.Job?.categoria ?? c.Listing?.categoria ?? "Geral",
-        otherUser: { id: other.id, nome: other.nome },
+        otherUser: { id: other.id, nome: other.nome || "Usuário" },
         lastMessage: last
           ? {
               content: parsedLast?.type === "IMAGE" ? "Imagem" : parsedLast?.content ?? "",
@@ -277,25 +282,25 @@ export class ChatService {
 
     const [users, jobs, listings] = await Promise.all([
       userIds.length
-        ? assertNoError<Array<Pick<Tables<"User">, "id" | "nome">>>(
-            await supabase.from("User").select("id, nome").in("id", userIds)
+        ? this.safeSelect<Array<Pick<Tables<"User">, "id" | "nome">>>(
+            supabase.from("User").select("id, nome").in("id", userIds)
           )
-        : [],
+        : Promise.resolve([]),
       jobIds.length
-        ? assertNoError<Array<Pick<Tables<"Job">, "id" | "titulo" | "categoria">>>(
-            await supabase.from("Job").select("id, titulo, categoria").in("id", jobIds)
+        ? this.safeSelect<Array<Pick<Tables<"Job">, "id" | "titulo" | "categoria">>>(
+            supabase.from("Job").select("id, titulo, categoria").in("id", jobIds)
           )
-        : [],
+        : Promise.resolve([]),
       listingIds.length
-        ? assertNoError<
+        ? this.safeSelect<
             Array<Pick<Tables<"Listing">, "id" | "titulo" | "categoria" | "tipo">>
           >(
-            await supabase
+            supabase
               .from("Listing")
               .select("id, titulo, categoria, tipo")
               .in("id", listingIds)
           )
-        : [],
+        : Promise.resolve([]),
     ]);
 
     const userById = new Map(users.map((u) => [u.id, u]));
@@ -338,18 +343,12 @@ export class ChatService {
     const unreadByConv = new Map<string, number>();
     if (convIds.length === 0) return unreadByConv;
 
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("Message")
       .select("conversationId")
       .in("conversationId", convIds)
       .is("readAt", null)
       .neq("senderId", userId);
-
-    if (error) {
-      const err = new Error(error.message);
-      (err as Error & { statusCode: number }).statusCode = 500;
-      throw err;
-    }
 
     for (const row of data ?? []) {
       const conversationId = row.conversationId as string;
@@ -389,11 +388,7 @@ export class ChatService {
             .limit(1)
             .maybeSingle();
 
-          if (error) {
-            const err = new Error(error.message);
-            (err as Error & { statusCode: number }).statusCode = 500;
-            throw err;
-          }
+          if (error) return null;
           return data as LastMsg | null;
         })
       );
@@ -404,6 +399,16 @@ export class ChatService {
     }
 
     return lastByConv;
+  }
+
+  private async safeSelect<T>(
+    query: Promise<{ data: T | null; error: { message: string } | null }>
+  ): Promise<T extends Array<infer _Item> ? T : never> {
+    const result = await query;
+    if (result.error || !result.data) {
+      return [] as T extends Array<infer _Item> ? T : never;
+    }
+    return result.data as T extends Array<infer _Item> ? T : never;
   }
 
   async getUnreadCount(userId: string) {
