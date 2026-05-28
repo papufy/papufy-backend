@@ -191,13 +191,20 @@ export class ChatService {
 
     const convIds = conversations.map((c) => c.id);
     const lastByConv = await this.fetchLastMessageByConversation(convIds);
+    const unreadByConv = await this.fetchUnreadCountByConversation(userId, convIds);
 
     return conversations.map((c) => {
       const other =
         c.contractorId === userId ? c.provider : c.contractor;
       const last = lastByConv.get(c.id) ?? null;
-      const unread =
-        last && last.senderId !== userId && !last.readAt ? 1 : 0;
+      const unread = unreadByConv.get(c.id) ?? 0;
+      const parsedLast = last
+        ? parseProposalFields({
+            content: last.content,
+            type: last.type as ChatMessageType,
+            proposalValue: null,
+          })
+        : null;
 
       return {
         id: c.id,
@@ -213,10 +220,7 @@ export class ChatService {
         otherUser: { id: other.id, nome: other.nome },
         lastMessage: last
           ? {
-              content:
-                last.type === "IMAGE"
-                  ? "Imagem"
-                  : last.content,
+              content: parsedLast?.type === "IMAGE" ? "Imagem" : parsedLast?.content ?? "",
               type: last.type ?? "TEXT",
               createdAt: last.createdAt,
               isMine: last.senderId === userId,
@@ -226,6 +230,31 @@ export class ChatService {
         updatedAt: c.updatedAt,
       };
     });
+  }
+
+  private async fetchUnreadCountByConversation(userId: string, convIds: string[]) {
+    const unreadByConv = new Map<string, number>();
+    if (convIds.length === 0) return unreadByConv;
+
+    const { data, error } = await supabase
+      .from("Message")
+      .select("conversationId")
+      .in("conversationId", convIds)
+      .is("readAt", null)
+      .neq("senderId", userId);
+
+    if (error) {
+      const err = new Error(error.message);
+      (err as Error & { statusCode: number }).statusCode = 500;
+      throw err;
+    }
+
+    for (const row of data ?? []) {
+      const conversationId = row.conversationId as string;
+      unreadByConv.set(conversationId, (unreadByConv.get(conversationId) ?? 0) + 1);
+    }
+
+    return unreadByConv;
   }
 
   /** Uma query indexada por conversa (limit 1) — evita carregar todo o histórico. */
