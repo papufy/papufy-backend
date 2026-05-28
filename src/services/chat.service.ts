@@ -46,6 +46,16 @@ type ConversationRow = {
   provider: { id: string; nome: string };
 };
 
+type ConversationBaseRow = {
+  id: string;
+  jobId: string | null;
+  listingId: string | null;
+  contractorId: string;
+  providerId: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type MessageWithSender = Tables<"Message"> & {
   sender: { id: string; nome: string };
 };
@@ -181,13 +191,19 @@ export class ChatService {
   }
 
   async listConversations(userId: string) {
-    const conversations = assertNoError(
-      await supabase
-        .from("Conversation")
-        .select(CONVERSATION_SELECT)
-        .or(`contractorId.eq.${userId},providerId.eq.${userId}`)
-        .order("updatedAt", { ascending: false })
-    ) as ConversationRow[];
+    let conversations: ConversationRow[] = [];
+    try {
+      conversations = assertNoError(
+        await supabase
+          .from("Conversation")
+          .select(CONVERSATION_SELECT)
+          .or(`contractorId.eq.${userId},providerId.eq.${userId}`)
+          .order("updatedAt", { ascending: false })
+      ) as ConversationRow[];
+    } catch {
+      // Fallback para ambientes onde joins nomeados (FK aliases) divergem do schema atual.
+      conversations = await this.listConversationsFallback(userId);
+    }
 
     const convIds = conversations.map((c) => c.id);
     const lastByConv = await this.fetchLastMessageByConversation(convIds);
@@ -229,6 +245,92 @@ export class ChatService {
         unread,
         updatedAt: c.updatedAt,
       };
+    });
+  }
+
+  private async listConversationsFallback(userId: string): Promise<ConversationRow[]> {
+    const baseRows = assertNoError<ConversationBaseRow[]>(
+      await supabase
+        .from("Conversation")
+        .select("id, jobId, listingId, contractorId, providerId, createdAt, updatedAt")
+        .or(`contractorId.eq.${userId},providerId.eq.${userId}`)
+        .order("updatedAt", { ascending: false })
+    );
+
+    if (baseRows.length === 0) return [];
+
+    const userIds = Array.from(
+      new Set(baseRows.flatMap((row) => [row.contractorId, row.providerId]))
+    );
+    const jobIds = Array.from(
+      new Set(
+        baseRows.map((row) => row.jobId).filter((id): id is string => Boolean(id))
+      )
+    );
+    const listingIds = Array.from(
+      new Set(
+        baseRows
+          .map((row) => row.listingId)
+          .filter((id): id is string => Boolean(id))
+      )
+    );
+
+    const [users, jobs, listings] = await Promise.all([
+      userIds.length
+        ? assertNoError<Array<Pick<Tables<"User">, "id" | "nome">>>(
+            await supabase.from("User").select("id, nome").in("id", userIds)
+          )
+        : [],
+      jobIds.length
+        ? assertNoError<Array<Pick<Tables<"Job">, "id" | "titulo" | "categoria">>>(
+            await supabase.from("Job").select("id, titulo, categoria").in("id", jobIds)
+          )
+        : [],
+      listingIds.length
+        ? assertNoError<
+            Array<Pick<Tables<"Listing">, "id" | "titulo" | "categoria" | "tipo">>
+          >(
+            await supabase
+              .from("Listing")
+              .select("id, titulo, categoria, tipo")
+              .in("id", listingIds)
+          )
+        : [],
+    ]);
+
+    const userById = new Map(users.map((u) => [u.id, u]));
+    const jobById = new Map(jobs.map((j) => [j.id, j]));
+    const listingById = new Map(listings.map((l) => [l.id, l]));
+
+    return baseRows.map((row) => {
+      const contractor = userById.get(row.contractorId) ?? {
+        id: row.contractorId,
+        nome: "Usuário",
+      };
+      const provider = userById.get(row.providerId) ?? {
+        id: row.providerId,
+        nome: "Usuário",
+      };
+      const job = row.jobId ? jobById.get(row.jobId) : null;
+      const listing = row.listingId ? listingById.get(row.listingId) : null;
+
+      return {
+        ...row,
+        listingId: row.listingId ?? undefined,
+        Job: job
+          ? { id: job.id, titulo: job.titulo, categoria: job.categoria }
+          : null,
+        Listing: listing
+          ? {
+              id: listing.id,
+              titulo: listing.titulo,
+              categoria: listing.categoria,
+              tipo: listing.tipo,
+            }
+          : null,
+        contractor: { id: contractor.id, nome: contractor.nome },
+        provider: { id: provider.id, nome: provider.nome },
+      } as ConversationRow;
     });
   }
 
