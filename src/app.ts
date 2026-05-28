@@ -10,6 +10,7 @@ import { chatRoutes } from "./routes/chat.routes";
 import { jobsRoutes } from "./routes/jobs.routes";
 import { listingsRoutes } from "./routes/listings.routes";
 import { paymentsRoutes } from "./routes/payments.routes";
+import { geoRoutes } from "./routes/geo.routes";
 import { userRoutes } from "./routes/user.routes";
 import { errorHandler } from "./middleware/errorHandler";
 import { securityHeaders } from "./middleware/securityHeaders";
@@ -81,9 +82,8 @@ export function createApp() {
   app.use("/user", userRoutes);
   app.use("/jobs", jobsRoutes);
   app.use("/chat", chatRoutes);
-  if (env.paymentsEnabled) {
-    app.use("/payments", paymentsRoutes);
-  }
+  app.use("/payments", paymentsRoutes);
+  app.use("/geo", geoRoutes);
 
   app.use(errorHandler);
 
