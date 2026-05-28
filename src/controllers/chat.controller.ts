@@ -103,6 +103,10 @@ export class ChatController {
         value,
         receiverProfile
       );
+      await publishChatMessageToPeers(id, req.userId!, {
+        ...message,
+        isMine: false,
+      });
       res.status(201).json({ message });
     } catch (err) {
       next(err);
