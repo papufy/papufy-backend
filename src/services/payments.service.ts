@@ -136,6 +136,11 @@ export class PaymentsService {
     try {
       const user = await this.applyPayerProfilePatch(userId, patch);
 
+      const existingCustomerId = user.asaasCustomerId?.trim();
+      if (existingCustomerId) {
+        return existingCustomerId;
+      }
+
       const cpfCnpj = user.cpfCnpj ? this.digitsOnly(user.cpfCnpj) : "";
       if (cpfCnpj.length < 11) {
         throw new PaymentProfileIncompleteError(
@@ -143,11 +148,6 @@ export class PaymentsService {
           "payer",
           "Informe CPF ou CNPJ válido para concluir o pagamento."
         );
-      }
-
-      const existingCustomerId = user.asaasCustomerId?.trim();
-      if (existingCustomerId) {
-        return existingCustomerId;
       }
 
       const phone = user.telefone ? sanitizePhone(user.telefone) : undefined;
@@ -434,6 +434,71 @@ export class PaymentsService {
     return this.createPaymentForListing(contractorId, input);
   }
 
+  private async resolvePixForTransaction(
+    transaction: Tables<"Transaction">
+  ): Promise<{ pixQrCodeImage?: string; pixCopyPaste?: string }> {
+    if (transaction.pixCopyPaste?.trim() || transaction.pixQrCodeImage?.trim()) {
+      return {
+        pixQrCodeImage: transaction.pixQrCodeImage ?? undefined,
+        pixCopyPaste: transaction.pixCopyPaste ?? undefined,
+      };
+    }
+
+    if (!transaction.asaasPaymentId) {
+      return {};
+    }
+
+    const pix = await fetchAsaasPixQrCode(transaction.asaasPaymentId);
+    const pixQrCodeImage = normalizePixEncodedImage(pix.encodedImage);
+    const pixCopyPaste = pix.payload?.trim() || undefined;
+
+    if (pixQrCodeImage || pixCopyPaste) {
+      await supabase
+        .from("Transaction")
+        .update({
+          pixQrCodeImage: pixQrCodeImage ?? null,
+          pixCopyPaste: pixCopyPaste ?? null,
+          updatedAt: new Date().toISOString(),
+        })
+        .eq("id", transaction.id);
+    }
+
+    return { pixQrCodeImage, pixCopyPaste };
+  }
+
+  private async syncTransactionFromAsaas(
+    tx: Tables<"Transaction">
+  ): Promise<Tables<"Transaction">> {
+    if (!tx.asaasPaymentId || tx.status !== "PENDING") {
+      return tx;
+    }
+
+    try {
+      const payment = await asaasRequest<AsaasPaymentResponse>(
+        `/payments/${tx.asaasPaymentId}`
+      );
+      const mapped = mapAsaasPaymentStatus(payment.status);
+      if (mapped !== "PAID") {
+        return tx;
+      }
+
+      return assertNoError<Tables<"Transaction">>(
+        await supabase
+          .from("Transaction")
+          .update({
+            status: "PAID",
+            paidAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          })
+          .eq("id", tx.id)
+          .select()
+          .single()
+      );
+    } catch {
+      return tx;
+    }
+  }
+
   async createCheckoutFromProposal(
     contractorId: string,
     messageId: string,
@@ -448,11 +513,14 @@ export class PaymentsService {
         | "proposalValue"
         | "type"
         | "content"
+        | "transactionId"
       >
     >(
       await supabase
         .from("Message")
-        .select("id, conversationId, senderId, proposalValue, type, content")
+        .select(
+          "id, conversationId, senderId, proposalValue, type, content, transactionId"
+        )
         .eq("id", messageId)
         .maybeSingle(),
       "Proposta não encontrada."
@@ -506,6 +574,51 @@ export class PaymentsService {
         .maybeSingle(),
       "Profissional não encontrado."
     );
+    if (proposal.transactionId) {
+      const existing = assertNoError<Tables<"Transaction">>(
+        await supabase
+          .from("Transaction")
+          .select("*")
+          .eq("id", proposal.transactionId)
+          .maybeSingle(),
+        "Transação da proposta não encontrada."
+      );
+
+      const synced = await this.syncTransactionFromAsaas(existing);
+
+      if (synced.status === "PAID" || synced.status === "RELEASED") {
+        throw badRequest("Esta proposta já foi paga.");
+      }
+      if (synced.status === "IN_DISPUTE") {
+        throw badRequest("Este pagamento está em mediação pelo suporte.");
+      }
+
+      if (synced.status === "PENDING") {
+        if (input.billingType === "CREDIT_CARD") {
+          throw badRequest(
+            "Já existe uma cobrança Pix pendente. Pague o Pix ou aguarde antes de usar cartão."
+          );
+        }
+
+        const pix = await this.resolvePixForTransaction(synced);
+        const refreshed = assertNoError<Tables<"Transaction">>(
+          await supabase
+            .from("Transaction")
+            .select("*")
+            .eq("id", synced.id)
+            .single()
+        );
+
+        return {
+          transaction: refreshed,
+          pix: {
+            encodedImage: pix.pixQrCodeImage ?? refreshed.pixQrCodeImage ?? undefined,
+            payload: pix.pixCopyPaste ?? refreshed.pixCopyPaste ?? undefined,
+          },
+        };
+      }
+    }
+
     const amountGross = Number(parsedProposal.proposalValue);
     const platformFee = Number((amountGross * 0.07).toFixed(2));
     const professionalNet = Number((amountGross - platformFee).toFixed(2));
@@ -586,7 +699,7 @@ export class PaymentsService {
       throw forbidden("Sem permissão para esta transação.");
     }
 
-    return tx;
+    return this.syncTransactionFromAsaas(tx);
   }
 
   async listMyTransactions(userId: string) {

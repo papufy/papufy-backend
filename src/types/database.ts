@@ -212,7 +212,9 @@ export type Database = {
           descricao: string;
           id: string;
           preco: number | null;
+          semQualificacao: boolean;
           status: Database["public"]["Enums"]["ListingStatus"];
+          archivedAt: string | null;
           telefone: string;
           tipo: Database["public"]["Enums"]["ListingType"];
           titulo: string;
@@ -222,14 +224,16 @@ export type Database = {
         };
         Insert: {
           aCombinar?: boolean;
+          archivedAt?: string | null;
           bairro?: string | null;
-          categoria: string;
+          categoria?: string;
           cep?: string | null;
           cidade: string;
           createdAt?: string;
           descricao: string;
           id: string;
           preco?: number | null;
+          semQualificacao?: boolean;
           status?: Database["public"]["Enums"]["ListingStatus"];
           telefone: string;
           tipo: Database["public"]["Enums"]["ListingType"];
@@ -240,6 +244,7 @@ export type Database = {
         };
         Update: {
           aCombinar?: boolean;
+          archivedAt?: string | null;
           bairro?: string | null;
           categoria?: string;
           cep?: string | null;
@@ -248,6 +253,7 @@ export type Database = {
           descricao?: string;
           id?: string;
           preco?: number | null;
+          semQualificacao?: boolean;
           status?: Database["public"]["Enums"]["ListingStatus"];
           telefone?: string;
           tipo?: Database["public"]["Enums"]["ListingType"];
@@ -510,6 +516,58 @@ export type Database = {
           },
         ];
       };
+      Review: {
+        Row: {
+          id: string;
+          transactionId: string;
+          reviewerId: string;
+          reviewedUserId: string;
+          rating: number;
+          comment: string | null;
+          createdAt: string;
+        };
+        Insert: {
+          id: string;
+          transactionId: string;
+          reviewerId: string;
+          reviewedUserId: string;
+          rating: number;
+          comment?: string | null;
+          createdAt?: string;
+        };
+        Update: {
+          id?: string;
+          transactionId?: string;
+          reviewerId?: string;
+          reviewedUserId?: string;
+          rating?: number;
+          comment?: string | null;
+          createdAt?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "Review_transactionId_fkey";
+            columns: ["transactionId"];
+            isOneToOne: true;
+            referencedRelation: "Transaction";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "Review_reviewerId_fkey";
+            columns: ["reviewerId"];
+            isOneToOne: false;
+            referencedRelation: "User";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "Review_reviewedUserId_fkey";
+            columns: ["reviewedUserId"];
+            isOneToOne: false;
+            referencedRelation: "User";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       User: {
         Row: {
           cidade: string | null;
@@ -575,7 +633,7 @@ export type Database = {
       BillingType: "PIX" | "CREDIT_CARD";
       JobStatus: "OPEN" | "CLOSED";
       ListingStatus: "OPEN" | "CLOSED" | "IN_PROGRESS";
-      ListingType: "JOB_VACANCY" | "PROFESSIONAL_PROFILE";
+      ListingType: "JOB_VACANCY" | "PROFESSIONAL_PROFILE" | "EMPLOYMENT";
       TransactionStatus:
         | "PENDING"
         | "PAID"

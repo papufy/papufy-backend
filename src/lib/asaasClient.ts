@@ -115,7 +115,7 @@ export interface AsaasTransferResponse {
 /** Após POST /payments (PIX), o QR pode demorar alguns ms para ficar disponível. */
 export async function fetchAsaasPixQrCode(
   paymentId: string,
-  attempts = 5
+  attempts = 8
 ): Promise<AsaasPixQrCode> {
   let lastPix: AsaasPixQrCode = {};
   for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -133,7 +133,7 @@ export async function fetchAsaasPixQrCode(
         throw err;
       }
     }
-    await sleep(350 * (attempt + 1));
+    await sleep(400 * (attempt + 1));
   }
   return lastPix;
 }

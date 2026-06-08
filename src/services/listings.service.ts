@@ -1,11 +1,15 @@
-import type { ListingStatus, ListingType } from "../types/enums";
+import {
+  normalizeListingType,
+  type ListingStatus,
+  type ListingType,
+} from "../types/enums";
 import { assertNoError, newId, supabase } from "../lib/db";
 import {
-  JOB_VACANCY_CATEGORIES,
-  PROFESSIONAL_PROFILE_CATEGORIES,
-} from "../constants/categories";
+  reputationService,
+  type UserReputation,
+} from "./reputation.service";
 import { sanitizePhone, sanitizeText } from "../utils/sanitize";
-import { forbidden } from "../utils/errors";
+import { AppError, forbidden } from "../utils/errors";
 import { publicFileUrl } from "../middleware/upload";
 import type { Tables } from "../types/database";
 
@@ -38,7 +42,9 @@ type ListingRow = {
   preco: number | null;
   aCombinar: boolean;
   categoria: string;
+  semQualificacao?: boolean;
   status: ListingStatus;
+  archivedAt?: string | null;
   cep: string | null;
   cidade: string;
   bairro: string | null;
@@ -66,12 +72,13 @@ function mapListing(
   return {
     id: listing.id,
     userId: listing.userId,
-    listingType: listing.tipo,
+    listingType: normalizeListingType(listing.tipo) ?? listing.tipo,
     titulo: listing.titulo,
     descricao: listing.descricao,
     preco: listing.preco,
     aCombinar: listing.aCombinar,
     categoria: listing.categoria,
+    semQualificacao: listing.semQualificacao ?? false,
     status: listing.status,
     cep: listing.cep,
     cidade: listing.cidade,
@@ -201,11 +208,29 @@ export class ListingsService {
       "Anúncio não encontrado."
     ) as ListingRow;
 
+    if (listing.archivedAt) {
+      throw new AppError("Anúncio não encontrado.", 404);
+    }
+
     const isOwner = viewerId === listing.userId;
+    let reputation: UserReputation = {
+      averageRating: null,
+      reviewCount: 0,
+      completedJobsCount: 0,
+    };
+    try {
+      reputation = await reputationService.getForUser(listing.userId);
+    } catch {
+      /* reputação indisponível — não bloqueia o anúncio */
+    }
+    const mapped = mapListing(listing, { includePhone: isOwner, allImages: true });
 
     return {
       listing: {
-        ...mapListing(listing, { includePhone: isOwner, allImages: true }),
+        ...mapped,
+        criador: mapped.criador
+          ? { ...mapped.criador, reputation }
+          : undefined,
         isOwner,
       },
     };
@@ -225,18 +250,10 @@ export class ListingsService {
       bairro?: string;
       uf: string;
       telefone: string;
+      semQualificacao?: boolean;
       imagePaths?: string[];
     }
   ) {
-    const categories: readonly string[] =
-      data.tipo === "PROFESSIONAL_PROFILE"
-        ? PROFESSIONAL_PROFILE_CATEGORIES
-        : JOB_VACANCY_CATEGORIES;
-
-    if (!categories.includes(data.categoria)) {
-      throw new Error("Categoria inválida para este tipo de anúncio.");
-    }
-
     const listingId = newId();
 
     const listing = assertNoError(
@@ -250,7 +267,8 @@ export class ListingsService {
           descricao: sanitizeText(data.descricao, 4000),
           preco: data.aCombinar ? null : (data.preco ?? null),
           aCombinar: data.aCombinar,
-          categoria: data.categoria,
+          categoria: sanitizeText(data.categoria || "Geral", 80),
+          semQualificacao: data.semQualificacao ?? false,
           cep: data.cep ? sanitizeText(data.cep, 12) : null,
           cidade: sanitizeText(data.cidade, 80),
           bairro: data.bairro ? sanitizeText(data.bairro, 80) : null,
@@ -295,6 +313,7 @@ export class ListingsService {
       .from("Listing")
       .select(LISTING_LIST_SELECT)
       .eq("userId", userId)
+      .is("archivedAt", null)
       .order("createdAt", { ascending: false });
 
     if (error) {

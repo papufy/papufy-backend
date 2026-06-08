@@ -16,6 +16,7 @@ enum JobStatus {
 enum ListingType {
   JOB_VACANCY
   PROFESSIONAL_PROFILE
+  EMPLOYMENT
 }
 
 enum ListingStatus {
@@ -78,6 +79,8 @@ model User {
   contractorConversations Conversation[] @relation("ContractorConversations")
   providerConversations   Conversation[] @relation("ProviderConversations")
   supportTickets          SupportTicket[]
+  reviewsGiven            Review[]       @relation("ReviewsGiven")
+  reviewsReceived         Review[]       @relation("ReviewsReceived")
 }
 
 model Certificate {
@@ -99,8 +102,10 @@ model Listing {
   descricao String
   preco     Float?
   aCombinar Boolean        @default(false)
-  categoria String
-  status    ListingStatus  @default(OPEN)
+  categoria       String         @default("Geral")
+  semQualificacao Boolean        @default(false)
+  status          ListingStatus  @default(OPEN)
+  archivedAt      DateTime?
   cep       String?
   cidade    String
   bairro    String?
@@ -219,6 +224,7 @@ model Transaction {
   professional     User              @relation("ProfessionalTransactions", fields: [professionalId], references: [id], onDelete: Cascade)
   messages         Message[]
   supportTickets   SupportTicket[]
+  review           Review?
 
   @@index([listingId])
   @@index([contractorId])
@@ -243,6 +249,23 @@ model Message {
 
   @@index([conversationId, createdAt])
   @@index([transactionId])
+}
+
+model Review {
+  id             String   @id @default(cuid())
+  transactionId  String   @unique
+  reviewerId     String
+  reviewedUserId String
+  rating         Int
+  comment        String?
+  createdAt      DateTime @default(now())
+
+  transaction    Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  reviewer       User        @relation("ReviewsGiven", fields: [reviewerId], references: [id], onDelete: Cascade)
+  reviewedUser   User        @relation("ReviewsReceived", fields: [reviewedUserId], references: [id], onDelete: Cascade)
+
+  @@index([reviewedUserId])
+  @@index([reviewerId])
 }
 
 model SupportTicket {

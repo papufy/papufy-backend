@@ -1,5 +1,5 @@
 export type JobStatus = "OPEN" | "CLOSED";
-export type ListingType = "JOB_VACANCY" | "PROFESSIONAL_PROFILE";
+export type ListingType = "JOB_VACANCY" | "PROFESSIONAL_PROFILE" | "EMPLOYMENT";
 export type ListingStatus = "OPEN" | "CLOSED" | "IN_PROGRESS";
 export type BillingType = "PIX" | "CREDIT_CARD";
 export type TransactionStatus =
@@ -15,7 +15,11 @@ export type TransactionStatus =
 export type LegacyListingType = "BICO" | "PRODUTO";
 
 export const JobStatusValues = ["OPEN", "CLOSED"] as const;
-export const ListingTypeValues = ["JOB_VACANCY", "PROFESSIONAL_PROFILE"] as const;
+export const ListingTypeValues = [
+  "JOB_VACANCY",
+  "PROFESSIONAL_PROFILE",
+  "EMPLOYMENT",
+] as const;
 export const ListingStatusValues = ["OPEN", "CLOSED", "IN_PROGRESS"] as const;
 export const BillingTypeValues = ["PIX", "CREDIT_CARD"] as const;
 export const TransactionStatusValues = [
@@ -40,6 +44,9 @@ export function normalizeListingType(
   if (!value) return undefined;
   if (value === "JOB_VACANCY" || value === "PROFESSIONAL_PROFILE") {
     return value;
+  }
+  if (value === "EMPLOYMENT") {
+    return "JOB_VACANCY";
   }
   if (value === "BICO" || value === "PRODUTO") {
     return LEGACY_TO_LISTING_TYPE[value];
