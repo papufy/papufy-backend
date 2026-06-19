@@ -18,6 +18,7 @@ const registerSchema = z.object({
   telefone: z.string().optional(),
   cidade: z.string().optional(),
   uf: z.string().length(2).optional(),
+  dataNascimento: z.string().min(8).optional(),
 });
 
 const loginSchema = z.object({

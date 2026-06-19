@@ -35,6 +35,7 @@ export class AuthService {
     telefone?: string;
     cidade?: string;
     uf?: string;
+    dataNascimento?: string;
   }) {
     const email = sanitizeEmail(data.email);
     const nome = sanitizeText(data.nome, 120);
@@ -77,6 +78,19 @@ export class AuthService {
       throw error;
     }
 
+    let dataNascimento: string | null = null;
+    if (cpfCnpj.length === 11) {
+      if (!data.dataNascimento?.trim()) {
+        throw badRequest("Informe a data de nascimento.");
+      }
+      dataNascimento = parseBirthDateInput(data.dataNascimento);
+      if (!isValidBirthDate(dataNascimento)) {
+        throw badRequest(
+          "Data de nascimento inválida. Informe uma data válida (18+ anos)."
+        );
+      }
+    }
+
     const senhaHash = await bcrypt.hash(data.senha, BCRYPT_ROUNDS);
 
     const user = assertNoError<PublicUser>(
@@ -88,6 +102,7 @@ export class AuthService {
           email,
           senha: senhaHash,
           cpfCnpj,
+          dataNascimento,
           telefone: data.telefone ? sanitizePhone(data.telefone) : null,
           cidade: data.cidade ? sanitizeText(data.cidade, 80) : null,
           uf: data.uf?.toUpperCase() ?? null,
@@ -205,6 +220,10 @@ export class AuthService {
     }
     if (data.dataNascimento !== undefined) {
       if (!data.dataNascimento) {
+        const doc = (updateData.cpfCnpj ?? user.cpfCnpj ?? "").replace(/\D/g, "");
+        if (doc.length === 11) {
+          throw badRequest("Informe a data de nascimento.");
+        }
         updateData.dataNascimento = null;
       } else {
         const birthDate = parseBirthDateInput(data.dataNascimento);
