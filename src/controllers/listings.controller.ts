@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { listingsService } from "../services/listings.service";
+import { uploadListingImages } from "../services/listingImageStorage.service";
 import { normalizeListingType, type ListingType } from "../types/enums";
 import { formBoolean, optionalFormBoolean } from "../utils/formBoolean";
 
@@ -139,7 +140,9 @@ export class ListingsController {
 
       const files = req.files as Express.Multer.File[] | undefined;
       const imagePaths =
-        files?.map((f) => `listings/${f.filename}`) ?? [];
+        files && files.length > 0
+          ? await uploadListingImages(files)
+          : [];
 
       const listingType = resolveListingType({
         listingType: body.listingType,
