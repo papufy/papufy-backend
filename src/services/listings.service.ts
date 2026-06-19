@@ -329,6 +329,76 @@ export class ListingsService {
     };
   }
 
+  async update(
+    listingId: string,
+    userId: string,
+    data: {
+      titulo?: string;
+      descricao?: string;
+      preco?: number | null;
+      aCombinar?: boolean;
+      cidade?: string;
+      bairro?: string | null;
+      cep?: string | null;
+      uf?: string;
+      telefone?: string;
+      semQualificacao?: boolean;
+    }
+  ) {
+    await this.assertOwner(listingId, userId);
+
+    const patch: Record<string, unknown> = {
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (data.titulo !== undefined) {
+      patch.titulo = sanitizeText(data.titulo, 120);
+    }
+    if (data.descricao !== undefined) {
+      patch.descricao = sanitizeText(data.descricao, 4000);
+    }
+    if (data.aCombinar !== undefined) {
+      patch.aCombinar = data.aCombinar;
+      if (data.aCombinar) {
+        patch.preco = null;
+      }
+    }
+    if (data.preco !== undefined && !data.aCombinar) {
+      patch.preco = data.preco;
+    }
+    if (data.cidade !== undefined) {
+      patch.cidade = sanitizeText(data.cidade, 80);
+    }
+    if (data.bairro !== undefined) {
+      patch.bairro = data.bairro ? sanitizeText(data.bairro, 80) : null;
+    }
+    if (data.cep !== undefined) {
+      patch.cep = data.cep ? sanitizeText(data.cep, 12) : null;
+    }
+    if (data.uf !== undefined) {
+      patch.uf = data.uf.toUpperCase();
+    }
+    if (data.telefone !== undefined) {
+      patch.telefone = sanitizePhone(data.telefone);
+    }
+    if (data.semQualificacao !== undefined) {
+      patch.semQualificacao = data.semQualificacao;
+    }
+
+    const updated = assertNoError(
+      await supabase
+        .from("Listing")
+        .update(patch)
+        .eq("id", listingId)
+        .select(
+          `*, User!Listing_userId_fkey(id, nome, cidade, uf), images:ListingImage(id, url, ordem)`
+        )
+        .single()
+    ) as ListingRow;
+
+    return { listing: mapListing(updated, { includePhone: true, allImages: true }) };
+  }
+
   async close(listingId: string, userId: string) {
     await this.assertOwner(listingId, userId);
     const updated = assertNoError(

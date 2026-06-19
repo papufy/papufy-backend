@@ -11,9 +11,18 @@ export function errorHandler(
   _next: NextFunction
 ): void {
   if (err instanceof ZodError) {
+    const fieldErrors = err.flatten().fieldErrors;
+    const messages = Object.values(fieldErrors)
+      .flat()
+      .filter((message): message is string => typeof message === "string");
     res.status(400).json({
-      error: "Dados inválidos.",
-      details: err.flatten().fieldErrors,
+      error:
+        messages.length === 1
+          ? messages[0]
+          : messages.length > 1
+            ? `Preencha os campos obrigatórios: ${messages.join("; ")}.`
+            : "Dados inválidos.",
+      details: fieldErrors,
     });
     return;
   }

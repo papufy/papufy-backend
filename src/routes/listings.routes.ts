@@ -43,6 +43,14 @@ listingsRoutes.patch(
   (req, res, next) => listingsController.reopen(req, res, next)
 );
 
+listingsRoutes.patch(
+  "/:id",
+  requireAuth,
+  validateResourceId(),
+  writeLimiter,
+  (req, res, next) => listingsController.update(req, res, next)
+);
+
 listingsRoutes.delete(
   "/:id",
   requireAuth,

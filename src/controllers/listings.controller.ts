@@ -24,20 +24,64 @@ const listQuerySchema = z.object({
   offset: z.coerce.number().optional(),
 });
 
+const updateListingSchema = z.object({
+  titulo: z
+    .string()
+    .min(5, "Título deve ter pelo menos 5 caracteres.")
+    .max(120, "Título deve ter no máximo 120 caracteres.")
+    .optional(),
+  descricao: z
+    .string()
+    .min(20, "Descrição deve ter pelo menos 20 caracteres.")
+    .max(4000, "Descrição deve ter no máximo 4000 caracteres.")
+    .optional(),
+  preco: z.coerce
+    .number({ invalid_type_error: "Informe um preço válido." })
+    .positive("Informe um preço maior que zero.")
+    .optional()
+    .nullable(),
+  aCombinar: z.coerce.boolean().optional(),
+  semQualificacao: z.coerce.boolean().optional(),
+  cep: z.string().optional().nullable(),
+  cidade: z.string().min(2, "Informe a cidade.").optional(),
+  bairro: z.string().optional().nullable(),
+  uf: z.string().length(2, "Informe a UF com 2 letras.").optional(),
+  telefone: z
+    .string()
+    .min(8, "Telefone deve ter pelo menos 8 dígitos.")
+    .optional(),
+});
+
 const createListingSchema = z.object({
   listingType: listingTypeInput.optional(),
   tipo: listingTypeInput.optional(),
-  titulo: z.string().min(5).max(120),
-  descricao: z.string().min(20).max(4000),
-  preco: z.coerce.number().positive().optional().nullable(),
+  titulo: z
+    .string({ required_error: "Informe o título." })
+    .min(5, "Título deve ter pelo menos 5 caracteres.")
+    .max(120, "Título deve ter no máximo 120 caracteres."),
+  descricao: z
+    .string({ required_error: "Informe a descrição." })
+    .min(20, "Descrição deve ter pelo menos 20 caracteres.")
+    .max(4000, "Descrição deve ter no máximo 4000 caracteres."),
+  preco: z.coerce
+    .number({ invalid_type_error: "Informe um preço válido." })
+    .positive("Informe um preço maior que zero.")
+    .optional()
+    .nullable(),
   aCombinar: z.coerce.boolean().default(false),
   categoria: z.string().min(2).optional(),
   semQualificacao: z.coerce.boolean().default(false),
   cep: z.string().optional(),
-  cidade: z.string().min(2),
+  cidade: z
+    .string({ required_error: "Informe a cidade." })
+    .min(2, "Informe a cidade."),
   bairro: z.string().optional(),
-  uf: z.string().length(2),
-  telefone: z.string().min(8),
+  uf: z
+    .string({ required_error: "Informe a UF." })
+    .length(2, "Informe a UF com 2 letras."),
+  telefone: z
+    .string({ required_error: "Informe o telefone." })
+    .min(8, "Telefone deve ter pelo menos 8 dígitos."),
 });
 
 function resolveListingType(input: {
@@ -123,6 +167,31 @@ export class ListingsController {
       });
 
       res.status(201).json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async update(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user!.id;
+      const id = String(req.params.id);
+      const body = updateListingSchema.parse(req.body);
+
+      const result = await listingsService.update(id, userId, {
+        titulo: body.titulo,
+        descricao: body.descricao,
+        preco: body.aCombinar ? null : body.preco ?? undefined,
+        aCombinar: body.aCombinar,
+        semQualificacao: body.semQualificacao,
+        cep: body.cep ?? undefined,
+        cidade: body.cidade,
+        bairro: body.bairro,
+        uf: body.uf,
+        telefone: body.telefone,
+      });
+
+      res.json(result);
     } catch (err) {
       next(err);
     }
