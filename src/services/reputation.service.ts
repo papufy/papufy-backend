@@ -57,40 +57,57 @@ export class ReputationService {
   }
 
   async getForUser(userId: string): Promise<UserReputation> {
-    const { count: completedJobsCount, error: txError } = await supabase
-      .from("Transaction")
-      .select("id", { count: "exact", head: true })
-      .eq("professionalId", userId)
-      .in("status", [...COMPLETED_STATUSES]);
-
-    if (txError) {
-      throw new Error(txError.message);
-    }
-
-    const { data: reviews, error: reviewError } = await supabase
-      .from("Review")
-      .select("rating")
-      .eq("reviewedUserId", userId);
-
-    if (reviewError) {
-      throw new Error(reviewError.message);
-    }
-
-    const reviewCount = reviews?.length ?? 0;
-    const averageRating =
-      reviewCount > 0
-        ? Math.round(
-            ((reviews ?? []).reduce((sum, row) => sum + row.rating, 0) /
-              reviewCount) *
-              10
-          ) / 10
-        : null;
-
-    return {
-      averageRating,
-      reviewCount,
-      completedJobsCount: completedJobsCount ?? 0,
+    const empty: UserReputation = {
+      averageRating: null,
+      reviewCount: 0,
+      completedJobsCount: 0,
     };
+
+    try {
+      const { count: completedJobsCount, error: txError } = await supabase
+        .from("Transaction")
+        .select("id", { count: "exact", head: true })
+        .eq("professionalId", userId)
+        .in("status", [...COMPLETED_STATUSES]);
+
+      if (txError) {
+        console.error("[reputation] transactions:", txError.message);
+        return empty;
+      }
+
+      const { data: reviews, error: reviewError } = await supabase
+        .from("Review")
+        .select("rating")
+        .eq("reviewedUserId", userId);
+
+      if (reviewError) {
+        console.error("[reputation] reviews:", reviewError.message);
+        return {
+          ...empty,
+          completedJobsCount: completedJobsCount ?? 0,
+        };
+      }
+
+      const reviewCount = reviews?.length ?? 0;
+      const averageRating =
+        reviewCount > 0
+          ? Math.round(
+              ((reviews ?? []).reduce((sum, row) => sum + row.rating, 0) /
+                reviewCount) *
+                10
+            ) / 10
+          : null;
+
+      return {
+        averageRating,
+        reviewCount,
+        completedJobsCount: completedJobsCount ?? 0,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[reputation] getForUser:", message);
+      return empty;
+    }
   }
 
   async createReview(

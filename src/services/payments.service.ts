@@ -14,7 +14,11 @@ import { env } from "../config/env";
 import type { BillingType, TransactionStatus } from "../types/enums";
 import { normalizeListingType } from "../types/enums";
 import { sanitizePhone, sanitizeText } from "../utils/sanitize";
-import { parseBirthDateInput, isValidBirthDate } from "../utils/birthDate";
+import {
+  normalizeAsaasBirthDate,
+  parseBirthDateInput,
+  isValidBirthDate,
+} from "../utils/birthDate";
 import { PaymentProfileIncompleteError } from "../errors/paymentProfile";
 import { AppError, forbidden, badRequest } from "../utils/errors";
 import { parseProposalFields } from "../utils/messageProposal";
@@ -170,6 +174,7 @@ export class PaymentsService {
       }
 
       const phone = user.telefone ? sanitizePhone(user.telefone) : undefined;
+      const birthDate = normalizeAsaasBirthDate(user.dataNascimento);
 
       const customer = await asaasRequest<{ id: string }>("/customers", {
         method: "POST",
@@ -178,9 +183,7 @@ export class PaymentsService {
           email: user.email,
           cpfCnpj,
           mobilePhone: phone,
-          ...(cpfCnpj.length === 11
-            ? { birthDate: user.dataNascimento }
-            : {}),
+          ...(cpfCnpj.length === 11 && birthDate ? { birthDate } : {}),
         }),
       });
 

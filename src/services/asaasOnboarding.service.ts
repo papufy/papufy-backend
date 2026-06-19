@@ -4,6 +4,7 @@ import { env } from "../config/env";
 import { parseBirthDateInput, isValidBirthDate } from "../utils/birthDate";
 import { PaymentProfileIncompleteError } from "../errors/paymentProfile";
 import { badRequest } from "../utils/errors";
+import { buildAsaasSubaccountPayload } from "../utils/asaasAccount";
 import type { PaymentProfilePatch } from "../utils/paymentCheckout";
 import { sanitizePhone, sanitizeText } from "../utils/sanitize";
 
@@ -179,8 +180,6 @@ export async function ensureAsaasRecipientWallet(
 
   const cpfCnpj = digitsOnly(String(user.cpfCnpj));
   const mobilePhone = sanitizePhone(String(user.telefone));
-  const cidade = user.cidade?.trim() || "Centro";
-  const uf = user.uf?.trim().toUpperCase() || "PB";
 
   const account = await asaasRequest<{
     walletId: string;
@@ -188,20 +187,7 @@ export async function ensureAsaasRecipientWallet(
     apiKey: string;
   }>("/accounts", {
     method: "POST",
-    body: JSON.stringify({
-      name: sanitizeText(user.nome, 120),
-      email: user.email.trim().toLowerCase(),
-      cpfCnpj,
-      mobilePhone,
-      incomeValue: 5000,
-      address: cidade,
-      addressNumber: "S/N",
-      province: uf,
-      postalCode: "58010000",
-      ...(cpfCnpj.length === 11
-        ? { birthDate: user.dataNascimento }
-        : {}),
-    }),
+    body: JSON.stringify(buildAsaasSubaccountPayload(user)),
   });
 
   if (!account.apiKey?.trim()) {

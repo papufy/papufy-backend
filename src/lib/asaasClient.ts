@@ -28,10 +28,14 @@ function extractAsaasMessage(json: unknown): string {
     json &&
     typeof json === "object" &&
     "errors" in json &&
-    Array.isArray((json as AsaasError).errors) &&
-    (json as AsaasError).errors?.[0]?.description
+    Array.isArray((json as AsaasError).errors)
   ) {
-    return (json as AsaasError).errors![0]!.description!;
+    const messages = (json as AsaasError).errors!
+      .map((e) => e?.description?.trim())
+      .filter((m): m is string => Boolean(m));
+    if (messages.length > 0) {
+      return messages.join(" ");
+    }
   }
   return "Erro ao comunicar com Asaas.";
 }
@@ -72,7 +76,9 @@ export async function asaasRequest<T>(
   }
 
   if (!expected.includes(response.status)) {
-    throw badRequest(extractAsaasMessage(json));
+    const message = extractAsaasMessage(json);
+    console.error("[asaas]", response.status, path, message);
+    throw badRequest(message);
   }
 
   return json as T;
