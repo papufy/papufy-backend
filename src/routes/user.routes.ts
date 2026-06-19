@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { reputationController } from "../controllers/reputation.controller";
+import { userProfileController } from "../controllers/userProfile.controller";
 import { userUploadController } from "../controllers/userUpload.controller";
 import { requireAuth } from "../middleware/auth";
 import {
@@ -9,6 +10,7 @@ import {
   validateCurriculoUpload,
 } from "../middleware/upload";
 import { rateLimit } from "../middleware/rateLimit";
+import { validateResourceId } from "../middleware/validateId";
 
 const userRoutes = Router();
 
@@ -50,6 +52,12 @@ userRoutes.get("/reviews/transaction/:transactionId", requireAuth, (req, res, ne
 
 userRoutes.post("/reviews", requireAuth, (req, res, next) =>
   reputationController.createReview(req, res, next)
+);
+
+userRoutes.get(
+  "/:userId/public",
+  validateResourceId("userId"),
+  (req, res, next) => userProfileController.getPublicProfile(req, res, next)
 );
 
 userRoutes.get("/:userId/reputation", (req, res, next) =>

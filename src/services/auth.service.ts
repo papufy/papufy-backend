@@ -113,6 +113,11 @@ export class AuthService {
 
     const token = signToken({ sub: user.id, email: user.email });
 
+    await supabase
+      .from("User")
+      .update({ updatedAt: new Date().toISOString() })
+      .eq("id", user.id);
+
     return {
       user: {
         id: user.id,

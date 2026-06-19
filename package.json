@@ -13,7 +13,8 @@
     "render:build": "npm ci --include=dev && npm run build",
     "build": "tsc",
     "start": "node dist/index.js",
-    "db:seed": "tsx scripts/seed.ts"
+    "db:seed": "tsx scripts/seed.ts",
+    "db:clear-listings": "tsx scripts/clear-listings.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.8",

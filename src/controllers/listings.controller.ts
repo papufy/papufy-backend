@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { listingsService } from "../services/listings.service";
 import { normalizeListingType, type ListingType } from "../types/enums";
+import { formBoolean, optionalFormBoolean } from "../utils/formBoolean";
 
 const listingTypeInput = z.enum([
   "JOB_VACANCY",
@@ -40,8 +41,8 @@ const updateListingSchema = z.object({
     .positive("Informe um preço maior que zero.")
     .optional()
     .nullable(),
-  aCombinar: z.coerce.boolean().optional(),
-  semQualificacao: z.coerce.boolean().optional(),
+  aCombinar: optionalFormBoolean(),
+  semQualificacao: optionalFormBoolean(),
   cep: z.string().optional().nullable(),
   cidade: z.string().min(2, "Informe a cidade.").optional(),
   bairro: z.string().optional().nullable(),
@@ -68,9 +69,9 @@ const createListingSchema = z.object({
     .positive("Informe um preço maior que zero.")
     .optional()
     .nullable(),
-  aCombinar: z.coerce.boolean().default(false),
+  aCombinar: formBoolean(false),
   categoria: z.string().min(2).optional(),
-  semQualificacao: z.coerce.boolean().default(false),
+  semQualificacao: formBoolean(false),
   cep: z.string().optional(),
   cidade: z
     .string({ required_error: "Informe a cidade." })

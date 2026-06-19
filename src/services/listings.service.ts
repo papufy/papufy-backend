@@ -51,7 +51,16 @@ type ListingRow = {
   uf: string;
   telefone: string;
   createdAt: string;
-  User?: { id: string; nome: string; cidade: string | null; uf: string | null };
+  User?: {
+    id: string;
+    nome: string;
+    cidade: string | null;
+    uf: string | null;
+    createdAt?: string;
+    updatedAt?: string;
+    telefone?: string | null;
+    email?: string | null;
+  };
   images?: { id: string; url: string; ordem: number }[];
 };
 
@@ -201,7 +210,7 @@ export class ListingsService {
       await supabase
         .from("Listing")
         .select(
-          `*, User!Listing_userId_fkey(id, nome, cidade, uf), images:ListingImage(id, url, ordem)`
+          `*, User!Listing_userId_fkey(id, nome, cidade, uf, createdAt, updatedAt, telefone, email), images:ListingImage(id, url, ordem)`
         )
         .eq("id", id)
         .maybeSingle(),
@@ -224,15 +233,57 @@ export class ListingsService {
       /* reputação indisponível — não bloqueia o anúncio */
     }
     const mapped = mapListing(listing, { includePhone: isOwner, allImages: true });
+    const publisher = listing.User;
 
     return {
       listing: {
         ...mapped,
-        criador: mapped.criador
-          ? { ...mapped.criador, reputation }
+        criador: publisher
+          ? {
+              id: publisher.id,
+              nome: publisher.nome,
+              cidade: publisher.cidade,
+              uf: publisher.uf,
+              memberSince: publisher.createdAt,
+              lastSeenAt: publisher.updatedAt,
+              verifiedEmail: Boolean(publisher.email),
+              verifiedPhone: Boolean(publisher.telefone),
+              reputation,
+            }
           : undefined,
         isOwner,
       },
+    };
+  }
+
+  async listPublicByUser(
+    userId: string,
+    options?: { limit?: number; offset?: number }
+  ) {
+    const limit = Math.min(Math.max(options?.limit ?? 12, 1), 24);
+    const offset = Math.max(options?.offset ?? 0, 0);
+
+    const { data, error, count } = await supabase
+      .from("Listing")
+      .select(LISTING_LIST_SELECT, { count: "exact" })
+      .eq("userId", userId)
+      .eq("status", "OPEN")
+      .is("archivedAt", null)
+      .order("createdAt", { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) {
+      const err = new Error(error.message);
+      (err as Error & { statusCode: number }).statusCode = 500;
+      throw err;
+    }
+
+    const items = (data ?? []) as ListingRow[];
+    return {
+      listings: items.map((l) => mapListing(l)),
+      total: count ?? items.length,
+      limit,
+      offset,
     };
   }
 
