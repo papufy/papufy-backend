@@ -11,7 +11,9 @@ import {
 import { sanitizePhone, sanitizeText } from "../utils/sanitize";
 import { AppError, forbidden } from "../utils/errors";
 import { publicFileUrl } from "../middleware/upload";
-import type { Tables } from "../types/database";
+import type { Database, Tables } from "../types/database";
+
+type ListingPatch = Database["public"]["Tables"]["Listing"]["Update"];
 
 export interface ListListingsFilters {
   search?: string;
@@ -398,7 +400,7 @@ export class ListingsService {
   ) {
     await this.assertOwner(listingId, userId);
 
-    const patch: Record<string, unknown> = {
+    const patch: ListingPatch = {
       updatedAt: new Date().toISOString(),
     };
 

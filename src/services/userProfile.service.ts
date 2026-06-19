@@ -2,9 +2,20 @@ import { assertNoError, supabase } from "../lib/db";
 import { listingsService } from "./listings.service";
 import { reputationService } from "./reputation.service";
 
+type PublicUserRow = {
+  id: string;
+  nome: string;
+  cidade: string | null;
+  uf: string | null;
+  email: string;
+  telefone: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export class UserProfileService {
   async getPublicProfile(userId: string) {
-    const user = assertNoError(
+    const user = assertNoError<PublicUserRow>(
       await supabase
         .from("User")
         .select("id, nome, cidade, uf, email, telefone, createdAt, updatedAt")

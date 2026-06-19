@@ -53,6 +53,21 @@ async function main() {
     const first = listAll.json.listings[0];
     const tipo = first?.listingType ?? first?.tipo;
     pass("GET /listings (sem filtro)", `tipo=${tipo}`);
+
+    const publisherId = first?.criador?.id ?? first?.userId;
+    if (publisherId) {
+      const profile = await request(`/user/${publisherId}/public`);
+      if (profile.res.ok && profile.json?.user?.id === publisherId) {
+        pass("GET /user/:id/public", profile.json.user.nome ?? publisherId);
+      } else {
+        fail(
+          "GET /user/:id/public",
+          `${profile.res.status} ${profile.json?.error ?? profile.json?.raw ?? ""}`.trim()
+        );
+      }
+    } else {
+      fail("GET /user/:id/public", "sem criador/userId no listing de teste");
+    }
   } else {
     fail("GET /listings (sem filtro)", `${listAll.res.status}`);
   }
