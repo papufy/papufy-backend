@@ -14,6 +14,7 @@ import { env } from "../config/env";
 import type { BillingType, TransactionStatus } from "../types/enums";
 import { normalizeListingType } from "../types/enums";
 import { sanitizePhone, sanitizeText } from "../utils/sanitize";
+import { parseBirthDateInput, isValidBirthDate } from "../utils/birthDate";
 import { PaymentProfileIncompleteError } from "../errors/paymentProfile";
 import { AppError, forbidden, badRequest } from "../utils/errors";
 import { parseProposalFields } from "../utils/messageProposal";
@@ -40,7 +41,7 @@ const USER_PAYMENT_SELECT =
   "id, nome, email, telefone, cidade, uf, curriculoUrl, cpfCnpj, asaasCustomerId, asaasWalletId, createdAt, updatedAt";
 
 const USER_ASAAS_CUSTOMER_SELECT =
-  "id, nome, email, telefone, cpfCnpj, asaasCustomerId";
+  "id, nome, email, telefone, cpfCnpj, dataNascimento, asaasCustomerId";
 
 type AsaasCustomerUserRow = {
   id: string;
@@ -48,6 +49,7 @@ type AsaasCustomerUserRow = {
   email: string;
   telefone: string | null;
   cpfCnpj: string | null;
+  dataNascimento: string | null;
   asaasCustomerId: string | null;
 };
 
@@ -84,6 +86,7 @@ export class PaymentsService {
       updatedAt: string;
       cpfCnpj?: string;
       telefone?: string | null;
+      dataNascimento?: string | null;
     } = {
       updatedAt: new Date().toISOString(),
     };
@@ -102,6 +105,14 @@ export class PaymentsService {
         throw badRequest("Telefone inválido. Informe DDD + número.");
       }
       update.telefone = sanitizePhone(patch.telefone);
+    }
+
+    if (patch.dataNascimento !== undefined) {
+      const birthDate = parseBirthDateInput(patch.dataNascimento);
+      if (!isValidBirthDate(birthDate)) {
+        throw badRequest("Data de nascimento inválida. Informe uma data válida (18+ anos).");
+      }
+      update.dataNascimento = birthDate;
     }
 
     if (Object.keys(update).length <= 1) {
@@ -150,6 +161,14 @@ export class PaymentsService {
         );
       }
 
+      if (cpfCnpj.length === 11 && !user.dataNascimento) {
+        throw new PaymentProfileIncompleteError(
+          ["dataNascimento"],
+          "payer",
+          "Informe a data de nascimento para concluir o pagamento."
+        );
+      }
+
       const phone = user.telefone ? sanitizePhone(user.telefone) : undefined;
 
       const customer = await asaasRequest<{ id: string }>("/customers", {
@@ -159,6 +178,9 @@ export class PaymentsService {
           email: user.email,
           cpfCnpj,
           mobilePhone: phone,
+          ...(cpfCnpj.length === 11
+            ? { birthDate: user.dataNascimento }
+            : {}),
         }),
       });
 

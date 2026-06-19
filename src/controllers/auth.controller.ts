@@ -31,6 +31,7 @@ const profileSchema = z.object({
   telefone: z.string().optional(),
   cidade: z.string().optional(),
   uf: z.string().length(2).optional(),
+  dataNascimento: z.string().min(8).optional(),
   senhaAtual: z.string().optional(),
   novaSenha: z.string().min(8).optional(),
 });

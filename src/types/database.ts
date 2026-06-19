@@ -581,6 +581,7 @@ export type Database = {
           uf: string | null;
           updatedAt: string;
           cpfCnpj: string | null;
+          dataNascimento: string | null;
           asaasCustomerId: string | null;
           asaasWalletId: string | null;
           asaasAccountId: string | null;
@@ -598,6 +599,7 @@ export type Database = {
           uf?: string | null;
           updatedAt?: string;
           cpfCnpj?: string | null;
+          dataNascimento?: string | null;
           asaasCustomerId?: string | null;
           asaasWalletId?: string | null;
           asaasAccountId?: string | null;
@@ -615,6 +617,7 @@ export type Database = {
           uf?: string | null;
           updatedAt?: string;
           cpfCnpj?: string | null;
+          dataNascimento?: string | null;
           asaasCustomerId?: string | null;
           asaasWalletId?: string | null;
           asaasAccountId?: string | null;

@@ -3,6 +3,7 @@ import { assertNoError, newId, supabase } from "../lib/db";
 import type { Tables } from "../types/database";
 import { sanitizeEmail, sanitizePhone, sanitizeText } from "../utils/sanitize";
 import { validatePasswordStrength } from "../utils/password";
+import { parseBirthDateInput, isValidBirthDate } from "../utils/birthDate";
 import { signToken } from "../utils/jwt";
 import { badRequest } from "../utils/errors";
 
@@ -10,11 +11,20 @@ const BCRYPT_ROUNDS = 12;
 
 type PublicUser = Pick<
   Tables<"User">,
-  "id" | "nome" | "email" | "telefone" | "cidade" | "uf" | "curriculoUrl" | "createdAt"
+  | "id"
+  | "nome"
+  | "email"
+  | "telefone"
+  | "cidade"
+  | "uf"
+  | "curriculoUrl"
+  | "cpfCnpj"
+  | "dataNascimento"
+  | "createdAt"
 >;
 
 const USER_PUBLIC_SELECT =
-  "id, nome, email, telefone, cidade, uf, curriculoUrl, createdAt" as const;
+  "id, nome, email, telefone, cidade, uf, curriculoUrl, cpfCnpj, dataNascimento, createdAt" as const;
 
 export class AuthService {
   async register(data: {
@@ -126,6 +136,8 @@ export class AuthService {
         telefone: user.telefone,
         cidade: user.cidade,
         uf: user.uf,
+        cpfCnpj: user.cpfCnpj,
+        dataNascimento: user.dataNascimento,
         createdAt: user.createdAt,
       },
       token,
@@ -153,6 +165,7 @@ export class AuthService {
       cidade?: string;
       uf?: string;
       cpfCnpj?: string;
+      dataNascimento?: string;
       senhaAtual?: string;
       novaSenha?: string;
     }
@@ -168,6 +181,7 @@ export class AuthService {
       cidade?: string | null;
       uf?: string | null;
       cpfCnpj?: string;
+      dataNascimento?: string | null;
       senha?: string;
       updatedAt?: string;
     } = { updatedAt: new Date().toISOString() };
@@ -188,6 +202,17 @@ export class AuthService {
     }
     if (data.uf !== undefined) {
       updateData.uf = data.uf ? data.uf.toUpperCase() : null;
+    }
+    if (data.dataNascimento !== undefined) {
+      if (!data.dataNascimento) {
+        updateData.dataNascimento = null;
+      } else {
+        const birthDate = parseBirthDateInput(data.dataNascimento);
+        if (!isValidBirthDate(birthDate)) {
+          throw badRequest("Data de nascimento inválida. Informe uma data válida (18+ anos).");
+        }
+        updateData.dataNascimento = birthDate;
+      }
     }
 
     if (data.novaSenha) {

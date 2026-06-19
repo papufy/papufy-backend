@@ -93,6 +93,7 @@ export class ChatController {
             .object({
               cpfCnpj: z.string().min(11).optional(),
               telefone: z.string().min(8).optional(),
+              dataNascimento: z.string().min(8).optional(),
             })
             .optional(),
         })

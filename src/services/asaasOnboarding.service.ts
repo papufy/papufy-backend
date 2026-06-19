@@ -1,13 +1,14 @@
 import { assertNoError, supabase } from "../lib/db";
 import { asaasRequest } from "../lib/asaasClient";
 import { env } from "../config/env";
+import { parseBirthDateInput, isValidBirthDate } from "../utils/birthDate";
 import { PaymentProfileIncompleteError } from "../errors/paymentProfile";
 import { badRequest } from "../utils/errors";
 import type { PaymentProfilePatch } from "../utils/paymentCheckout";
 import { sanitizePhone, sanitizeText } from "../utils/sanitize";
 
 const USER_PAYMENT_SELECT =
-  "id, nome, email, telefone, cidade, uf, cpfCnpj, asaasCustomerId, asaasWalletId, asaasAccountId, asaasSubaccountApiKey";
+  "id, nome, email, telefone, cidade, uf, cpfCnpj, dataNascimento, asaasCustomerId, asaasWalletId, asaasAccountId, asaasSubaccountApiKey";
 
 export type { PaymentProfilePatch };
 
@@ -19,6 +20,7 @@ type PaymentUserRow = {
   cidade: string | null;
   uf: string | null;
   cpfCnpj: string | null;
+  dataNascimento: string | null;
   asaasCustomerId: string | null;
   asaasWalletId: string | null;
   asaasAccountId: string | null;
@@ -36,6 +38,10 @@ function missingReceiverFields(user: PaymentUserRow): string[] {
   }
   if (!user.telefone || digitsOnly(user.telefone).length < 10) {
     missing.push("telefone");
+  }
+  const doc = user.cpfCnpj ? digitsOnly(user.cpfCnpj) : "";
+  if (doc.length === 11 && !user.dataNascimento) {
+    missing.push("dataNascimento");
   }
   return missing;
 }
@@ -63,6 +69,7 @@ async function applyPaymentProfilePatch(
     telefone?: string | null;
     cidade?: string | null;
     uf?: string | null;
+    dataNascimento?: string | null;
   } = {
     updatedAt: new Date().toISOString(),
   };
@@ -86,6 +93,13 @@ async function applyPaymentProfilePatch(
   }
   if (patch.uf !== undefined) {
     update.uf = patch.uf ? patch.uf.toUpperCase().slice(0, 2) : null;
+  }
+  if (patch.dataNascimento !== undefined) {
+    const birthDate = parseBirthDateInput(patch.dataNascimento);
+    if (!isValidBirthDate(birthDate)) {
+      throw badRequest("Data de nascimento inválida. Informe uma data válida (18+ anos).");
+    }
+    update.dataNascimento = birthDate;
   }
 
   if (Object.keys(update).length <= 1) {
@@ -184,6 +198,9 @@ export async function ensureAsaasRecipientWallet(
       addressNumber: "S/N",
       province: uf,
       postalCode: "58010000",
+      ...(cpfCnpj.length === 11
+        ? { birthDate: user.dataNascimento }
+        : {}),
     }),
   });
 

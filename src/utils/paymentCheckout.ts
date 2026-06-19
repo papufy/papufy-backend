@@ -22,6 +22,7 @@ export interface PaymentProfilePatch {
   telefone?: string;
   cidade?: string;
   uf?: string;
+  dataNascimento?: string;
 }
 
 export interface CheckoutPaymentInput {
