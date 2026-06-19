@@ -14,6 +14,42 @@ const productionUrl = z
     message: "URL local não permitida — projeto só produção.",
   });
 
+function parseOptionalUrl(
+  value: unknown,
+  label: string
+): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  try {
+    const normalized = /^https?:\/\//i.test(trimmed)
+      ? trimmed
+      : `https://${trimmed}`;
+    const url = new URL(normalized);
+    if (url.protocol !== "https:" && url.protocol !== "http:") {
+      throw new Error("protocolo inválido");
+    }
+    return url.href.replace(/\/$/, "");
+  } catch {
+    console.warn(
+      `[env] ${label} inválida — pagamentos Asaas ficam desativados até corrigir no Render.`
+    );
+    return undefined;
+  }
+}
+
+function parseOptionalSecret(
+  value: unknown,
+  minLength: number
+): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length < minLength) return undefined;
+  return trimmed;
+}
+
 const envSchema = z.object({
   SUPABASE_URL: productionUrl,
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(20),
@@ -26,9 +62,18 @@ const envSchema = z.object({
   FRONTEND_URL: productionUrl,
   PUBLIC_BASE_URL: productionUrl.optional(),
   UPLOAD_DIR: z.string().default("./uploads"),
-  ASAAS_API_URL: z.string().url().optional(),
-  ASAAS_API_KEY: z.string().min(10).optional(),
-  ASAAS_WEBHOOK_TOKEN: z.string().min(8).optional(),
+  ASAAS_API_URL: z.preprocess(
+    (value) => parseOptionalUrl(value, "ASAAS_API_URL"),
+    z.string().optional()
+  ),
+  ASAAS_API_KEY: z.preprocess(
+    (value) => parseOptionalSecret(value, 10),
+    z.string().optional()
+  ),
+  ASAAS_WEBHOOK_TOKEN: z.preprocess(
+    (value) => parseOptionalSecret(value, 8),
+    z.string().optional()
+  ),
 });
 
 const parsed = envSchema.safeParse(process.env);
