@@ -1,4 +1,5 @@
 import { assertNoError, supabase } from "../lib/db";
+import { parseAptidoes, parseHorarios } from "../utils/qualificacoes";
 import { listingsService } from "./listings.service";
 import { reputationService } from "./reputation.service";
 
@@ -11,6 +12,9 @@ type PublicUserRow = {
   telefone: string;
   createdAt: string;
   updatedAt: string;
+  aptidoes: unknown;
+  horariosDisponiveis: unknown;
+  curriculoUrl: string | null;
 };
 
 export class UserProfileService {
@@ -18,7 +22,9 @@ export class UserProfileService {
     const user = assertNoError<PublicUserRow>(
       await supabase
         .from("User")
-        .select("id, nome, cidade, uf, email, telefone, createdAt, updatedAt")
+        .select(
+          "id, nome, cidade, uf, email, telefone, createdAt, updatedAt, aptidoes, horariosDisponiveis, curriculoUrl"
+        )
         .eq("id", userId)
         .maybeSingle(),
       "Usuário não encontrado."
@@ -39,6 +45,13 @@ export class UserProfileService {
       limit: 12,
     });
 
+    const { data: certificates } = await supabase
+      .from("Certificate")
+      .select("id, nome, arquivoUrl, createdAt")
+      .eq("userId", userId)
+      .order("createdAt", { ascending: false })
+      .limit(20);
+
     return {
       user: {
         id: user.id,
@@ -49,7 +62,11 @@ export class UserProfileService {
         lastSeenAt: user.updatedAt,
         verifiedEmail: Boolean(user.email),
         verifiedPhone: Boolean(user.telefone),
+        aptidoes: parseAptidoes(user.aptidoes),
+        horariosDisponiveis: parseHorarios(user.horariosDisponiveis),
+        hasCurriculo: Boolean(user.curriculoUrl),
       },
+      certificates: certificates ?? [],
       reputation,
       listings,
       totalListings: total,

@@ -42,7 +42,18 @@ const updateListingSchema = z.object({
     .positive("Informe um preço maior que zero.")
     .optional()
     .nullable(),
+  precoMin: z.coerce
+    .number({ invalid_type_error: "Informe um preço mínimo válido." })
+    .positive("Informe um preço mínimo maior que zero.")
+    .optional()
+    .nullable(),
+  precoMax: z.coerce
+    .number({ invalid_type_error: "Informe um preço máximo válido." })
+    .positive("Informe um preço máximo maior que zero.")
+    .optional()
+    .nullable(),
   aCombinar: optionalFormBoolean(),
+  diferenciais: z.string().max(2000).optional().nullable(),
   semQualificacao: optionalFormBoolean(),
   cep: z.string().optional().nullable(),
   cidade: z.string().min(2, "Informe a cidade.").optional(),
@@ -70,7 +81,18 @@ const createListingSchema = z.object({
     .positive("Informe um preço maior que zero.")
     .optional()
     .nullable(),
+  precoMin: z.coerce
+    .number({ invalid_type_error: "Informe um preço mínimo válido." })
+    .positive("Informe um preço mínimo maior que zero.")
+    .optional()
+    .nullable(),
+  precoMax: z.coerce
+    .number({ invalid_type_error: "Informe um preço máximo válido." })
+    .positive("Informe um preço máximo maior que zero.")
+    .optional()
+    .nullable(),
   aCombinar: formBoolean(false),
+  diferenciais: z.string().max(2000).optional().nullable(),
   categoria: z.string().min(2).optional(),
   semQualificacao: formBoolean(false),
   cep: z.string().optional(),
@@ -159,7 +181,10 @@ export class ListingsController {
         titulo: body.titulo,
         descricao: body.descricao,
         preco: body.aCombinar ? null : body.preco ?? null,
+        precoMin: body.precoMin ?? null,
+        precoMax: body.precoMax ?? null,
         aCombinar: body.aCombinar,
+        diferenciais: body.diferenciais ?? null,
         categoria: body.categoria?.trim() || "Geral",
         semQualificacao: body.semQualificacao,
         cep: body.cep,
@@ -186,7 +211,10 @@ export class ListingsController {
         titulo: body.titulo,
         descricao: body.descricao,
         preco: body.aCombinar ? null : body.preco ?? undefined,
+        precoMin: body.precoMin ?? undefined,
+        precoMax: body.precoMax ?? undefined,
         aCombinar: body.aCombinar,
+        diferenciais: body.diferenciais,
         semQualificacao: body.semQualificacao,
         cep: body.cep ?? undefined,
         cidade: body.cidade,

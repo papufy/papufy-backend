@@ -6,6 +6,13 @@ import { validatePasswordStrength } from "../utils/password";
 import { parseBirthDateInput, isValidBirthDate } from "../utils/birthDate";
 import { signToken } from "../utils/jwt";
 import { badRequest } from "../utils/errors";
+import {
+  normalizeAptidoes,
+  normalizeHorarios,
+  parseAptidoes,
+  parseHorarios,
+  type HorarioDisponivel,
+} from "../utils/qualificacoes";
 
 const BCRYPT_ROUNDS = 12;
 
@@ -21,10 +28,30 @@ type PublicUser = Pick<
   | "cpfCnpj"
   | "dataNascimento"
   | "createdAt"
->;
+> & {
+  aptidoes: string[];
+  horariosDisponiveis: HorarioDisponivel[];
+};
 
 const USER_PUBLIC_SELECT =
-  "id, nome, email, telefone, cidade, uf, curriculoUrl, cpfCnpj, dataNascimento, createdAt" as const;
+  "id, nome, email, telefone, cidade, uf, curriculoUrl, cpfCnpj, dataNascimento, aptidoes, horariosDisponiveis, createdAt" as const;
+
+function toPublicUser(row: Record<string, unknown>): PublicUser {
+  return {
+    id: row.id as string,
+    nome: row.nome as string,
+    email: row.email as string,
+    telefone: (row.telefone as string | null) ?? null,
+    cidade: (row.cidade as string | null) ?? null,
+    uf: (row.uf as string | null) ?? null,
+    curriculoUrl: (row.curriculoUrl as string | null) ?? null,
+    cpfCnpj: (row.cpfCnpj as string | null) ?? null,
+    dataNascimento: (row.dataNascimento as string | null) ?? null,
+    aptidoes: parseAptidoes(row.aptidoes),
+    horariosDisponiveis: parseHorarios(row.horariosDisponiveis),
+    createdAt: row.createdAt as string,
+  };
+}
 
 export class AuthService {
   async register(data: {
@@ -93,7 +120,7 @@ export class AuthService {
 
     const senhaHash = await bcrypt.hash(data.senha, BCRYPT_ROUNDS);
 
-    const user = assertNoError<PublicUser>(
+    const row = assertNoError<Record<string, unknown>>(
       await supabase
         .from("User")
         .insert({
@@ -106,11 +133,14 @@ export class AuthService {
           telefone: data.telefone ? sanitizePhone(data.telefone) : null,
           cidade: data.cidade ? sanitizeText(data.cidade, 80) : null,
           uf: data.uf?.toUpperCase() ?? null,
+          aptidoes: [],
+          horariosDisponiveis: [],
         })
         .select(USER_PUBLIC_SELECT)
         .single()
     );
 
+    const user = toPublicUser(row);
     const token = signToken({ sub: user.id, email: user.email });
     return { user, token };
   }
@@ -131,9 +161,9 @@ export class AuthService {
     const valid = await bcrypt.compare(senha, user.senha);
 
     if (!valid) {
-      const error = new Error("E-mail ou senha incorretos.");
-      (error as Error & { statusCode: number }).statusCode = 401;
-      throw error;
+      const err = new Error("E-mail ou senha incorretos.");
+      (err as Error & { statusCode: number }).statusCode = 401;
+      throw err;
     }
 
     const token = signToken({ sub: user.id, email: user.email });
@@ -144,23 +174,13 @@ export class AuthService {
       .eq("id", user.id);
 
     return {
-      user: {
-        id: user.id,
-        nome: user.nome,
-        email: user.email,
-        telefone: user.telefone,
-        cidade: user.cidade,
-        uf: user.uf,
-        cpfCnpj: user.cpfCnpj,
-        dataNascimento: user.dataNascimento,
-        createdAt: user.createdAt,
-      },
+      user: toPublicUser(user as Record<string, unknown>),
       token,
     };
   }
 
   async getMe(userId: string) {
-    const user = assertNoError<PublicUser>(
+    const row = assertNoError<Record<string, unknown>>(
       await supabase
         .from("User")
         .select(USER_PUBLIC_SELECT)
@@ -169,7 +189,7 @@ export class AuthService {
       "Usuário não encontrado."
     );
 
-    return user;
+    return toPublicUser(row);
   }
 
   async updateProfile(
@@ -183,6 +203,8 @@ export class AuthService {
       dataNascimento?: string;
       senhaAtual?: string;
       novaSenha?: string;
+      aptidoes?: string[];
+      horariosDisponiveis?: HorarioDisponivel[];
     }
   ) {
     const user = assertNoError<Tables<"User">>(
@@ -198,6 +220,8 @@ export class AuthService {
       cpfCnpj?: string;
       dataNascimento?: string | null;
       senha?: string;
+      aptidoes?: string[];
+      horariosDisponiveis?: HorarioDisponivel[];
       updatedAt?: string;
     } = { updatedAt: new Date().toISOString() };
 
@@ -228,10 +252,21 @@ export class AuthService {
       } else {
         const birthDate = parseBirthDateInput(data.dataNascimento);
         if (!isValidBirthDate(birthDate)) {
-          throw badRequest("Data de nascimento inválida. Informe uma data válida (18+ anos).");
+          throw badRequest(
+            "Data de nascimento inválida. Informe uma data válida (18+ anos)."
+          );
         }
         updateData.dataNascimento = birthDate;
       }
+    }
+
+    if (data.aptidoes !== undefined) {
+      updateData.aptidoes = normalizeAptidoes(data.aptidoes);
+    }
+    if (data.horariosDisponiveis !== undefined) {
+      updateData.horariosDisponiveis = normalizeHorarios(
+        data.horariosDisponiveis
+      );
     }
 
     if (data.novaSenha) {
@@ -255,7 +290,7 @@ export class AuthService {
       updateData.senha = await bcrypt.hash(data.novaSenha, BCRYPT_ROUNDS);
     }
 
-    const updated = assertNoError<PublicUser>(
+    const row = assertNoError<Record<string, unknown>>(
       await supabase
         .from("User")
         .update(updateData)
@@ -264,7 +299,7 @@ export class AuthService {
         .single()
     );
 
-    return updated;
+    return toPublicUser(row);
   }
 }
 

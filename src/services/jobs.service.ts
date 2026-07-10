@@ -3,6 +3,7 @@ import type { Tables } from "../types/database";
 import { assertNoError, newId, supabase } from "../lib/db";
 import { JOB_VACANCY_CATEGORIES } from "../constants/categories";
 import { sanitizePhone, sanitizeText } from "../utils/sanitize";
+import { resolvePriceFields } from "../utils/priceRange";
 import { chatService } from "./chat.service";
 
 export interface ListJobsFilters {
@@ -21,7 +22,10 @@ type JobRow = {
   titulo: string;
   descricao: string;
   preco: number | null;
+  precoMin?: number | null;
+  precoMax?: number | null;
   aCombinar: boolean;
+  diferenciais?: string | null;
   categoria: string;
   status: JobStatus;
   cep: string | null;
@@ -60,7 +64,10 @@ function mapJob(
     titulo: job.titulo,
     descricao: job.descricao,
     preco: job.preco,
+    precoMin: job.precoMin ?? job.preco,
+    precoMax: job.precoMax ?? job.preco,
     aCombinar: job.aCombinar,
+    diferenciais: job.diferenciais ?? null,
     categoria: job.categoria,
     status: job.status,
     cep: job.cep,
@@ -192,7 +199,10 @@ export class JobsService {
       titulo: string;
       descricao: string;
       preco?: number | null;
+      precoMin?: number | null;
+      precoMax?: number | null;
       aCombinar: boolean;
+      diferenciais?: string | null;
       categoria: string;
       cep?: string;
       cidade: string;
@@ -207,6 +217,8 @@ export class JobsService {
       throw error;
     }
 
+    const price = resolvePriceFields(data);
+
     const job = assertNoError(
       await supabase
         .from("Job")
@@ -214,8 +226,13 @@ export class JobsService {
           id: newId(),
           titulo: sanitizeText(data.titulo, 120),
           descricao: sanitizeText(data.descricao, 5000),
-          preco: data.aCombinar ? null : (data.preco ?? null),
-          aCombinar: data.aCombinar,
+          preco: price.preco,
+          precoMin: price.precoMin,
+          precoMax: price.precoMax,
+          aCombinar: price.aCombinar,
+          diferenciais: data.diferenciais
+            ? sanitizeText(data.diferenciais, 2000)
+            : null,
           categoria: data.categoria,
           cep: data.cep ? sanitizeText(data.cep, 12) : null,
           cidade: sanitizeText(data.cidade, 80),
@@ -239,7 +256,10 @@ export class JobsService {
       titulo: string;
       descricao: string;
       preco: number | null;
+      precoMin: number | null;
+      precoMax: number | null;
       aCombinar: boolean;
+      diferenciais: string | null;
       categoria: string;
       cep: string;
       cidade: string;
@@ -256,6 +276,21 @@ export class JobsService {
       throw error;
     }
 
+    const priceTouched =
+      data.aCombinar !== undefined ||
+      data.preco !== undefined ||
+      data.precoMin !== undefined ||
+      data.precoMax !== undefined;
+
+    const price = priceTouched
+      ? resolvePriceFields({
+          aCombinar: data.aCombinar ?? job.aCombinar,
+          preco: data.preco,
+          precoMin: data.precoMin,
+          precoMax: data.precoMax,
+        })
+      : null;
+
     const updated = assertNoError(
       await supabase
         .from("Job")
@@ -264,8 +299,20 @@ export class JobsService {
           descricao: data.descricao
             ? sanitizeText(data.descricao, 5000)
             : undefined,
-          preco: data.aCombinar ? null : data.preco,
-          aCombinar: data.aCombinar,
+          ...(price
+            ? {
+                preco: price.preco,
+                precoMin: price.precoMin,
+                precoMax: price.precoMax,
+                aCombinar: price.aCombinar,
+              }
+            : {}),
+          diferenciais:
+            data.diferenciais !== undefined
+              ? data.diferenciais
+                ? sanitizeText(data.diferenciais, 2000)
+                : null
+              : undefined,
           categoria: data.categoria,
           cep: data.cep !== undefined ? data.cep || null : undefined,
           cidade: data.cidade ? sanitizeText(data.cidade, 80) : undefined,

@@ -9,7 +9,10 @@ const createJobSchema = z
     titulo: z.string().min(5, "Título deve ter ao menos 5 caracteres."),
     descricao: z.string().min(20, "Descrição deve ter ao menos 20 caracteres."),
     preco: z.number().positive().optional().nullable(),
+    precoMin: z.number().positive().optional().nullable(),
+    precoMax: z.number().positive().optional().nullable(),
     aCombinar: z.boolean().default(false),
+    diferenciais: z.string().max(2000).optional().nullable(),
     categoria: z.enum(JOB_VACANCY_CATEGORIES as unknown as [string, ...string[]]),
     cep: z.string().optional(),
     cidade: z.string().min(2),
@@ -18,15 +21,26 @@ const createJobSchema = z
     telefone: z.string().min(8),
   })
   .refine(
-    (data) => data.aCombinar || (data.preco != null && data.preco > 0),
-    { message: "Informe o orçamento ou marque 'A combinar'.", path: ["preco"] }
+    (data) =>
+      data.aCombinar ||
+      (data.preco != null && data.preco > 0) ||
+      (data.precoMin != null && data.precoMin > 0) ||
+      (data.precoMax != null && data.precoMax > 0),
+    {
+      message:
+        "Informe um valor, uma faixa de orçamento ou marque 'A combinar'.",
+      path: ["preco"],
+    }
   );
 
 const updateJobSchema = z.object({
   titulo: z.string().min(5).optional(),
   descricao: z.string().min(20).optional(),
   preco: z.number().positive().optional().nullable(),
+  precoMin: z.number().positive().optional().nullable(),
+  precoMax: z.number().positive().optional().nullable(),
   aCombinar: z.boolean().optional(),
+  diferenciais: z.string().max(2000).optional().nullable(),
   categoria: z.enum(JOB_VACANCY_CATEGORIES as unknown as [string, ...string[]]).optional(),
   cep: z.string().optional(),
   cidade: z.string().min(2).optional(),

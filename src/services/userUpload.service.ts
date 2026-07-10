@@ -2,7 +2,7 @@ import { assertNoError, newId, supabase } from "../lib/db";
 import { publicFileUrl } from "../middleware/upload";
 
 const USER_PUBLIC_SELECT =
-  "id, nome, email, telefone, cidade, uf, curriculoUrl, createdAt";
+  "id, nome, email, telefone, cidade, uf, curriculoUrl, aptidoes, horariosDisponiveis, createdAt";
 
 export class UserUploadService {
   async uploadCurriculo(userId: string, filename: string) {

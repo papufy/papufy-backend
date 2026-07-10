@@ -3,7 +3,11 @@ import path from "path";
 import pg from "pg";
 import { env } from "../config/env";
 
-const CHAT_PROPOSAL_MIGRATION = "20260527130000_chat_proposal_dispute.sql";
+const AUTO_MIGRATIONS = [
+  "20260527130000_chat_proposal_dispute.sql",
+  "20260710180000_user_qualificacoes.sql",
+  "20260710190000_preco_faixa_diferenciais.sql",
+] as const;
 
 function resolveDatabaseUrl(): string | null {
   const direct = process.env.DATABASE_URL?.trim();
@@ -29,18 +33,6 @@ export async function ensureDatabaseSchema(): Promise<void> {
     return;
   }
 
-  const migrationPath = path.join(
-    process.cwd(),
-    "supabase",
-    "migrations",
-    CHAT_PROPOSAL_MIGRATION
-  );
-  if (!fs.existsSync(migrationPath)) {
-    console.warn(`[schema] Arquivo não encontrado: ${migrationPath}`);
-    return;
-  }
-
-  const sql = fs.readFileSync(migrationPath, "utf8");
   const client = new pg.Client({
     connectionString: databaseUrl,
     ssl: { rejectUnauthorized: false },
@@ -48,8 +40,21 @@ export async function ensureDatabaseSchema(): Promise<void> {
 
   try {
     await client.connect();
-    await client.query(sql);
-    console.log("[schema] Migração chat/proposta aplicada (ou já existente).");
+    for (const file of AUTO_MIGRATIONS) {
+      const migrationPath = path.join(
+        process.cwd(),
+        "supabase",
+        "migrations",
+        file
+      );
+      if (!fs.existsSync(migrationPath)) {
+        console.warn(`[schema] Arquivo não encontrado: ${migrationPath}`);
+        continue;
+      }
+      const sql = fs.readFileSync(migrationPath, "utf8");
+      await client.query(sql);
+      console.log(`[schema] Migração aplicada (ou já existente): ${file}`);
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[schema] Falha ao aplicar migração:", message);

@@ -11,6 +11,7 @@ import {
 import { sanitizePhone, sanitizeText } from "../utils/sanitize";
 import { AppError, forbidden } from "../utils/errors";
 import { publicFileUrl } from "../middleware/upload";
+import { resolvePriceFields } from "../utils/priceRange";
 import type { Database, Tables } from "../types/database";
 
 type ListingPatch = Database["public"]["Tables"]["Listing"]["Update"];
@@ -42,7 +43,10 @@ type ListingRow = {
   titulo: string;
   descricao: string;
   preco: number | null;
+  precoMin?: number | null;
+  precoMax?: number | null;
   aCombinar: boolean;
+  diferenciais?: string | null;
   categoria: string;
   semQualificacao?: boolean;
   status: ListingStatus;
@@ -87,7 +91,10 @@ function mapListing(
     titulo: listing.titulo,
     descricao: listing.descricao,
     preco: listing.preco,
+    precoMin: listing.precoMin ?? listing.preco,
+    precoMax: listing.precoMax ?? listing.preco,
     aCombinar: listing.aCombinar,
+    diferenciais: listing.diferenciais ?? null,
     categoria: listing.categoria,
     semQualificacao: listing.semQualificacao ?? false,
     status: listing.status,
@@ -110,10 +117,12 @@ function mapListing(
 
 export class ListingsService {
   private async assertOwner(listingId: string, userId: string) {
-    const listing = assertNoError<Pick<Tables<"Listing">, "id" | "userId">>(
+    const listing = assertNoError<
+      Pick<Tables<"Listing">, "id" | "userId" | "aCombinar">
+    >(
       await supabase
         .from("Listing")
-        .select("id, userId")
+        .select("id, userId, aCombinar")
         .eq("id", listingId)
         .maybeSingle(),
       "Anúncio não encontrado."
@@ -296,7 +305,10 @@ export class ListingsService {
       titulo: string;
       descricao: string;
       preco?: number | null;
+      precoMin?: number | null;
+      precoMax?: number | null;
       aCombinar: boolean;
+      diferenciais?: string | null;
       categoria: string;
       cep?: string;
       cidade: string;
@@ -308,6 +320,7 @@ export class ListingsService {
     }
   ) {
     const listingId = newId();
+    const price = resolvePriceFields(data);
 
     const listing = assertNoError(
       await supabase
@@ -318,8 +331,13 @@ export class ListingsService {
           tipo: data.tipo,
           titulo: sanitizeText(data.titulo, 120),
           descricao: sanitizeText(data.descricao, 4000),
-          preco: data.aCombinar ? null : (data.preco ?? null),
-          aCombinar: data.aCombinar,
+          preco: price.preco,
+          precoMin: price.precoMin,
+          precoMax: price.precoMax,
+          aCombinar: price.aCombinar,
+          diferenciais: data.diferenciais
+            ? sanitizeText(data.diferenciais, 2000)
+            : null,
           categoria: sanitizeText(data.categoria || "Geral", 80),
           semQualificacao: data.semQualificacao ?? false,
           cep: data.cep ? sanitizeText(data.cep, 12) : null,
@@ -389,7 +407,10 @@ export class ListingsService {
       titulo?: string;
       descricao?: string;
       preco?: number | null;
+      precoMin?: number | null;
+      precoMax?: number | null;
       aCombinar?: boolean;
+      diferenciais?: string | null;
       cidade?: string;
       bairro?: string | null;
       cep?: string | null;
@@ -398,7 +419,7 @@ export class ListingsService {
       semQualificacao?: boolean;
     }
   ) {
-    await this.assertOwner(listingId, userId);
+    const current = await this.assertOwner(listingId, userId);
 
     const patch: ListingPatch = {
       updatedAt: new Date().toISOString(),
@@ -410,14 +431,30 @@ export class ListingsService {
     if (data.descricao !== undefined) {
       patch.descricao = sanitizeText(data.descricao, 4000);
     }
-    if (data.aCombinar !== undefined) {
-      patch.aCombinar = data.aCombinar;
-      if (data.aCombinar) {
-        patch.preco = null;
-      }
+
+    const priceTouched =
+      data.aCombinar !== undefined ||
+      data.preco !== undefined ||
+      data.precoMin !== undefined ||
+      data.precoMax !== undefined;
+
+    if (priceTouched) {
+      const price = resolvePriceFields({
+        aCombinar: data.aCombinar ?? current.aCombinar,
+        preco: data.preco,
+        precoMin: data.precoMin,
+        precoMax: data.precoMax,
+      });
+      patch.preco = price.preco;
+      patch.precoMin = price.precoMin;
+      patch.precoMax = price.precoMax;
+      patch.aCombinar = price.aCombinar;
     }
-    if (data.preco !== undefined && !data.aCombinar) {
-      patch.preco = data.preco;
+
+    if (data.diferenciais !== undefined) {
+      patch.diferenciais = data.diferenciais
+        ? sanitizeText(data.diferenciais, 2000)
+        : null;
     }
     if (data.cidade !== undefined) {
       patch.cidade = sanitizeText(data.cidade, 80);

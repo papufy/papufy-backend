@@ -35,6 +35,16 @@ const profileSchema = z.object({
   dataNascimento: z.string().min(8).optional(),
   senhaAtual: z.string().optional(),
   novaSenha: z.string().min(8).optional(),
+  aptidoes: z.array(z.string()).optional(),
+  horariosDisponiveis: z
+    .array(
+      z.object({
+        diaSemana: z.number().int().min(0).max(6),
+        horaInicio: z.string(),
+        horaFim: z.string(),
+      })
+    )
+    .optional(),
 });
 
 export class AuthController {

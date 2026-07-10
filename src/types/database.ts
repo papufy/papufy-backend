@@ -114,6 +114,9 @@ export type Database = {
           descricao: string;
           id: string;
           preco: number | null;
+          precoMin: number | null;
+          precoMax: number | null;
+          diferenciais: string | null;
           status: Database["public"]["Enums"]["JobStatus"];
           telefone: string;
           titulo: string;
@@ -131,6 +134,9 @@ export type Database = {
           descricao: string;
           id: string;
           preco?: number | null;
+          precoMin?: number | null;
+          precoMax?: number | null;
+          diferenciais?: string | null;
           status?: Database["public"]["Enums"]["JobStatus"];
           telefone: string;
           titulo: string;
@@ -148,6 +154,9 @@ export type Database = {
           descricao?: string;
           id?: string;
           preco?: number | null;
+          precoMin?: number | null;
+          precoMax?: number | null;
+          diferenciais?: string | null;
           status?: Database["public"]["Enums"]["JobStatus"];
           telefone?: string;
           titulo?: string;
@@ -212,6 +221,9 @@ export type Database = {
           descricao: string;
           id: string;
           preco: number | null;
+          precoMin: number | null;
+          precoMax: number | null;
+          diferenciais: string | null;
           semQualificacao: boolean;
           status: Database["public"]["Enums"]["ListingStatus"];
           archivedAt: string | null;
@@ -233,6 +245,9 @@ export type Database = {
           descricao: string;
           id: string;
           preco?: number | null;
+          precoMin?: number | null;
+          precoMax?: number | null;
+          diferenciais?: string | null;
           semQualificacao?: boolean;
           status?: Database["public"]["Enums"]["ListingStatus"];
           telefone: string;
@@ -253,6 +268,9 @@ export type Database = {
           descricao?: string;
           id?: string;
           preco?: number | null;
+          precoMin?: number | null;
+          precoMax?: number | null;
+          diferenciais?: string | null;
           semQualificacao?: boolean;
           status?: Database["public"]["Enums"]["ListingStatus"];
           telefone?: string;
@@ -582,6 +600,12 @@ export type Database = {
           updatedAt: string;
           cpfCnpj: string | null;
           dataNascimento: string | null;
+          aptidoes: string[];
+          horariosDisponiveis: {
+            diaSemana: number;
+            horaInicio: string;
+            horaFim: string;
+          }[];
           asaasCustomerId: string | null;
           asaasWalletId: string | null;
           asaasAccountId: string | null;
@@ -600,6 +624,12 @@ export type Database = {
           updatedAt?: string;
           cpfCnpj?: string | null;
           dataNascimento?: string | null;
+          aptidoes?: string[];
+          horariosDisponiveis?: {
+            diaSemana: number;
+            horaInicio: string;
+            horaFim: string;
+          }[];
           asaasCustomerId?: string | null;
           asaasWalletId?: string | null;
           asaasAccountId?: string | null;
@@ -618,6 +648,12 @@ export type Database = {
           updatedAt?: string;
           cpfCnpj?: string | null;
           dataNascimento?: string | null;
+          aptidoes?: string[];
+          horariosDisponiveis?: {
+            diaSemana: number;
+            horaInicio: string;
+            horaFim: string;
+          }[];
           asaasCustomerId?: string | null;
           asaasWalletId?: string | null;
           asaasAccountId?: string | null;
