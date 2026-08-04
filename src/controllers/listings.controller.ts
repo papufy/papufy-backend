@@ -15,6 +15,8 @@ const listingTypeInput = z.enum([
 const listQuerySchema = z.object({
   search: z.string().optional(),
   category: z.string().optional(),
+  /** Categorias separadas por vírgula (ex.: pedido + profissionais afins). */
+  categories: z.string().optional(),
   listingType: listingTypeInput.optional(),
   tipo: listingTypeInput.optional(),
   location: z.string().optional(),
@@ -126,9 +128,16 @@ export class ListingsController {
         listingType: query.listingType,
         tipo: query.tipo,
       });
+      const categories = query.categories
+        ? query.categories
+            .split(",")
+            .map((c) => c.trim())
+            .filter(Boolean)
+        : undefined;
       const result = await listingsService.list({
         search: query.search,
         category: query.category,
+        categories,
         tipo: listingType,
         location: query.location,
         uf: query.uf,

@@ -19,6 +19,8 @@ type ListingPatch = Database["public"]["Tables"]["Listing"]["Update"];
 export interface ListListingsFilters {
   search?: string;
   category?: string;
+  /** Múltiplas categorias (pedido + profissionais afins). */
+  categories?: string[];
   tipo?: ListingType;
   uf?: string;
   cidade?: string;
@@ -148,7 +150,9 @@ export class ListingsService {
       query = query.eq("tipo", filters.tipo);
     }
 
-    if (filters.category) {
+    if (filters.categories && filters.categories.length > 0) {
+      query = query.in("categoria", filters.categories);
+    } else if (filters.category) {
       query = query.eq("categoria", filters.category);
     }
 
