@@ -23,7 +23,7 @@ export async function requireAuth(
   }
 
   if (!rawToken) {
-    res.status(401).json({ error: "Token de autenticação ausente." });
+    res.status(401).json({ error: "Faça login para continuar." });
     return;
   }
 
@@ -47,6 +47,6 @@ export async function requireAuth(
       res.status(err.statusCode).json({ error: err.message });
       return;
     }
-    res.status(401).json({ error: "Token inválido ou expirado." });
+    res.status(401).json({ error: "Sua sessão expirou. Entre novamente." });
   }
 }

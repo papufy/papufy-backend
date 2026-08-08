@@ -27,11 +27,14 @@ function extractPagarmeMessage(json: unknown): string {
     lower.includes("create a recipient") ||
     lower.includes("create a recipeint")
   ) {
-    return "Recebimentos ainda não estão liberados nesta conta. Ative o Marketplace/Split no painel Stone/Pagar.me ou fale com o suporte.";
+    return "Recebimentos ainda não estão liberados. Fale com o suporte Papufy.";
   }
 
-  if (raw) return raw;
-  return "Não foi possível concluir a operação de pagamento. Tente novamente.";
+  // Nunca devolve jargão técnico do PSP (inglês / campos internos) ao usuário.
+  if (raw) {
+    console.warn("[pagarme]", raw);
+  }
+  return "Não foi possível concluir o pagamento. Confira os dados e tente de novo.";
 }
 
 function basicAuthHeader(secretKey: string): string {

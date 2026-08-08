@@ -9,6 +9,7 @@ import { PLATFORM_SPLIT_PERCENT } from "../utils/paymentCheckout";
 import { badRequest } from "../utils/errors";
 import { normalizeBirthDateIso } from "../utils/birthDate";
 import type {
+  ChargePlatformOnlyInput,
   ChargeWithSplitInput,
   EnsureRecipientInput,
   PaymentProvider,
@@ -220,7 +221,7 @@ export const pagarmeProvider: PaymentProvider = {
   async chargeWithSplit(input: ChargeWithSplitInput): Promise<PspChargeResult> {
     if (!env.PAGARME_PLATFORM_RECIPIENT_ID) {
       throw badRequest(
-        "Defina PAGARME_PLATFORM_RECIPIENT_ID (recebedor da plataforma Papufy) no ambiente."
+        "Pagamentos temporariamente indisponíveis. Tente novamente em instantes."
       );
     }
 
@@ -289,6 +290,45 @@ export const pagarmeProvider: PaymentProvider = {
           },
         ],
         payments: [payment],
+      }),
+    });
+
+    const charge = order.charges?.[0];
+    const lastTx = charge?.last_transaction;
+    const status = mapPagarmePaymentStatus(charge?.status ?? order.status);
+
+    return {
+      paymentId: charge?.id || order.id,
+      status,
+      pixCopyPaste: lastTx?.qr_code?.trim() || null,
+      pixQrCodeImage: normalizePixImage(
+        lastTx?.qr_code_base64 ?? lastTx?.qr_code_url
+      ),
+      raw: order,
+    };
+  },
+
+  async chargePlatformOnly(input: ChargePlatformOnlyInput): Promise<PspChargeResult> {
+    const order = await pagarmeRequest<PagarmeOrder>("/orders", {
+      method: "POST",
+      body: JSON.stringify({
+        customer_id: input.customerId,
+        code: input.externalReference.slice(0, 52),
+        items: [
+          {
+            amount: input.amountCents,
+            description: input.description.slice(0, 256),
+            quantity: 1,
+            code: input.externalReference.slice(0, 52),
+          },
+        ],
+        payments: [
+          {
+            payment_method: "pix",
+            amount: input.amountCents,
+            pix: { expires_in: 3600 },
+          },
+        ],
       }),
     });
 

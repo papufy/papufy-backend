@@ -12,7 +12,7 @@ export class PaymentProfileIncompleteError extends AppError {
   ) {
     const defaultMessage =
       role === "payer"
-        ? "Para pagar, informe os dados faltantes no checkout."
+        ? "Para pagar, complete os dados pedidos na tela de pagamento."
         : "Para receber pagamentos, complete os dados abaixo.";
     super(message ?? defaultMessage, 422);
     this.name = "PaymentProfileIncompleteError";

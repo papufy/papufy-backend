@@ -183,7 +183,7 @@ export async function validateCurriculoUpload(
   try {
     const file = req.file;
     if (!file) {
-      next(badRequest("Envie um arquivo PDF no campo curriculo."));
+      next(badRequest("Envie um currículo em PDF."));
       return;
     }
     await assertFileMagic(file.path, "pdf");
@@ -204,7 +204,7 @@ export async function validateFotoPerfilUpload(
   try {
     const file = req.file;
     if (!file) {
-      next(badRequest("Envie uma imagem no campo foto."));
+      next(badRequest("Envie uma foto."));
       return;
     }
     const kind: AllowedFileKind =
@@ -227,7 +227,7 @@ export async function validateCertificadosUpload(
   try {
     const files = (req.files as Express.Multer.File[] | undefined) ?? [];
     if (!files.length) {
-      next(badRequest("Envie ao menos uma imagem no campo certificados."));
+      next(badRequest("Envie ao menos uma imagem de certificado."));
       return;
     }
     for (const file of files) {
@@ -297,7 +297,7 @@ export async function validateChatImageUpload(
   try {
     const file = req.file;
     if (!file) {
-      next(badRequest("Envie uma imagem no campo imagem."));
+      next(badRequest("Envie uma imagem."));
       return;
     }
     const kind: AllowedFileKind = file.mimetype === "image/png" ? "png" : "jpeg";

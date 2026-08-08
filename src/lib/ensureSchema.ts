@@ -213,6 +213,119 @@ export async function ensureDatabaseSchema(): Promise<void> {
       console.warn("[schema] ListingFavorite (aviso):", msg);
     }
 
+    // --- Validade de anúncios (15 dias) ---
+    await addColumnIfMissing(
+      client,
+      "Listing",
+      "expiresAt",
+      "TIMESTAMP(3)"
+    );
+    await addColumnIfMissing(
+      client,
+      "Listing",
+      "expiredByTtl",
+      "BOOLEAN NOT NULL DEFAULT false"
+    );
+    await ensureIndex(
+      client,
+      "Listing_expiresAt_idx",
+      `CREATE INDEX "Listing_expiresAt_idx" ON "Listing" ("expiresAt")`
+    );
+    await ensureIndex(
+      client,
+      "Listing_status_expiresAt_idx",
+      `CREATE INDEX "Listing_status_expiresAt_idx" ON "Listing" ("status", "expiresAt")`
+    );
+    const backfill = await client.query(
+      `UPDATE "Listing"
+       SET "expiresAt" = "createdAt" + interval '15 days'
+       WHERE "expiresAt" IS NULL`
+    );
+    if ((backfill.rowCount ?? 0) > 0) {
+      console.log(
+        `[schema] Listing.expiresAt backfill: ${backfill.rowCount} linha(s)`
+      );
+    }
+
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS "ListingRenewal" (
+          "id" TEXT PRIMARY KEY,
+          "listingId" TEXT NOT NULL REFERENCES "Listing"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+          "userId" TEXT NOT NULL REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+          "pagarmeOrderId" TEXT,
+          "pagarmeChargeId" TEXT,
+          "paymentProvider" TEXT,
+          "amountGross" DOUBLE PRECISION NOT NULL,
+          "billingType" "BillingType" NOT NULL DEFAULT 'PIX',
+          "status" "TransactionStatus" NOT NULL DEFAULT 'PENDING',
+          "pixQrCodeImage" TEXT,
+          "pixCopyPaste" TEXT,
+          "paidAt" TIMESTAMP(3),
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await ensureIndex(
+        client,
+        "ListingRenewal_listingId_idx",
+        `CREATE INDEX "ListingRenewal_listingId_idx" ON "ListingRenewal" ("listingId")`
+      );
+      await ensureIndex(
+        client,
+        "ListingRenewal_userId_idx",
+        `CREATE INDEX "ListingRenewal_userId_idx" ON "ListingRenewal" ("userId")`
+      );
+      await ensureIndex(
+        client,
+        "ListingRenewal_pagarmeChargeId_idx",
+        `CREATE INDEX "ListingRenewal_pagarmeChargeId_idx" ON "ListingRenewal" ("pagarmeChargeId")`
+      );
+      console.log("[schema] ListingRenewal ok.");
+    } catch (renewErr) {
+      const msg =
+        renewErr instanceof Error ? renewErr.message : String(renewErr);
+      console.warn("[schema] ListingRenewal (aviso):", msg);
+    }
+
+    // --- Notificações in-app ---
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS "AppNotification" (
+          "id" TEXT PRIMARY KEY,
+          "userId" TEXT NOT NULL REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+          "listingId" TEXT REFERENCES "Listing"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+          "type" TEXT NOT NULL,
+          "title" TEXT NOT NULL,
+          "body" TEXT NOT NULL,
+          "href" TEXT,
+          "refExpiresAt" TIMESTAMP(3),
+          "readAt" TIMESTAMP(3),
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await ensureIndex(
+        client,
+        "AppNotification_userId_createdAt_idx",
+        `CREATE INDEX "AppNotification_userId_createdAt_idx" ON "AppNotification" ("userId", "createdAt" DESC)`
+      );
+      await ensureIndex(
+        client,
+        "AppNotification_userId_readAt_idx",
+        `CREATE INDEX "AppNotification_userId_readAt_idx" ON "AppNotification" ("userId", "readAt")`
+      );
+      await ensureIndex(
+        client,
+        "AppNotification_dedup_idx",
+        `CREATE UNIQUE INDEX "AppNotification_dedup_idx" ON "AppNotification" ("listingId", "type", "refExpiresAt") WHERE "listingId" IS NOT NULL AND "refExpiresAt" IS NOT NULL`
+      );
+      console.log("[schema] AppNotification ok.");
+    } catch (notifErr) {
+      const msg =
+        notifErr instanceof Error ? notifErr.message : String(notifErr);
+      console.warn("[schema] AppNotification (aviso):", msg);
+    }
+
     console.log("[schema] Schema ok.");
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

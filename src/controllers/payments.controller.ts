@@ -304,6 +304,38 @@ export class PaymentsController {
     }
   }
 
+  async renewListing(req: Request, res: Response, next: NextFunction) {
+    try {
+      assertPaymentsEnabled();
+      const listingId = String(req.params.id);
+      const body = z
+        .object({ payerProfile: payerProfileSchema.optional() })
+        .parse(req.body ?? {});
+      const result = await paymentsService.createListingRenewal(
+        req.userId!,
+        listingId,
+        body.payerProfile
+      );
+      res.status(201).json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async listingRenewalStatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      assertPaymentsEnabled();
+      const renewalId = String(req.params.id);
+      const result = await paymentsService.getListingRenewalStatus(
+        renewalId,
+        req.userId!
+      );
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
 }
 
 export const paymentsController = new PaymentsController();

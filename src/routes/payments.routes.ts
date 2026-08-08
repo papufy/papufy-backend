@@ -56,3 +56,11 @@ paymentsRoutes.post("/transactions/:id/confirm-completion", requireAuth, (req, r
   paymentsController.confirmCompletion(req, res, next)
 );
 
+paymentsRoutes.post("/listings/:id/renew", requireAuth, (req, res, next) =>
+  paymentsController.renewListing(req, res, next)
+);
+
+paymentsRoutes.get("/listing-renewals/:id/status", requireAuth, (req, res, next) =>
+  paymentsController.listingRenewalStatus(req, res, next)
+);
+

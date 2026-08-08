@@ -12,6 +12,8 @@ import { listingsRoutes } from "./routes/listings.routes";
 import { paymentsRoutes } from "./routes/payments.routes";
 import { geoRoutes } from "./routes/geo.routes";
 import { userRoutes } from "./routes/user.routes";
+import { internalRoutes } from "./routes/internal.routes";
+import { notificationsRoutes } from "./routes/notifications.routes";
 import { errorHandler } from "./middleware/errorHandler";
 import { securityHeaders } from "./middleware/securityHeaders";
 import { rateLimit } from "./middleware/rateLimit";
@@ -84,6 +86,8 @@ export function createApp() {
   app.use("/chat", chatRoutes);
   app.use("/payments", paymentsRoutes);
   app.use("/geo", geoRoutes);
+  app.use("/notifications", notificationsRoutes);
+  app.use("/internal", internalRoutes);
 
   app.use(errorHandler);
 

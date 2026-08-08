@@ -12,7 +12,7 @@ export function forbidden(message = "Acesso negado."): AppError {
   return new AppError(message, 403);
 }
 
-export function unauthorized(message = "Token inválido ou expirado."): AppError {
+export function unauthorized(message = "Sua sessão expirou. Entre novamente."): AppError {
   return new AppError(message, 401);
 }
 

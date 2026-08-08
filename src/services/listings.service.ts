@@ -9,9 +9,14 @@ import {
   type UserReputation,
 } from "./reputation.service";
 import { sanitizePhone, sanitizeText } from "../utils/sanitize";
-import { AppError, forbidden } from "../utils/errors";
+import { AppError, badRequest, forbidden } from "../utils/errors";
 import { publicFileUrl } from "../middleware/upload";
 import { resolvePriceFields } from "../utils/priceRange";
+import {
+  addListingTtlDays,
+  computeRenewedExpiresAt,
+  LISTING_PURGE_GRACE_DAYS,
+} from "../constants/listingTtl";
 import type { Database, Tables } from "../types/database";
 
 type ListingPatch = Database["public"]["Tables"]["Listing"]["Update"];
@@ -53,6 +58,8 @@ type ListingRow = {
   semQualificacao?: boolean;
   status: ListingStatus;
   archivedAt?: string | null;
+  expiresAt?: string | null;
+  expiredByTtl?: boolean;
   cep: string | null;
   cidade: string;
   bairro: string | null;
@@ -104,6 +111,8 @@ function mapListing(
     categoria: listing.categoria,
     semQualificacao: isJobVacancy ? listing.semQualificacao ?? false : false,
     status: listing.status,
+    expiresAt: listing.expiresAt ?? null,
+    expiredByTtl: listing.expiredByTtl ?? false,
     cep: listing.cep,
     cidade: listing.cidade,
     bairro: listing.bairro,
@@ -145,10 +154,16 @@ export class ListingsService {
     const limit = Math.min(Math.max(filters.limit ?? 20, 1), 50);
     const offset = Math.max(filters.offset ?? 0, 0);
 
+    const status = filters.status ?? "OPEN";
     let query = supabase
       .from("Listing")
       .select(LISTING_LIST_SELECT, { count: "exact" })
-      .eq("status", filters.status ?? "OPEN");
+      .eq("status", status);
+
+    // Feed público: só OPEN ainda dentro da validade (defesa contra race do cron).
+    if (status === "OPEN") {
+      query = query.gt("expiresAt", new Date().toISOString());
+    }
 
     if (filters.tipo) {
       query = query.eq("tipo", filters.tipo);
@@ -241,6 +256,19 @@ export class ListingsService {
     }
 
     const isOwner = viewerId === listing.userId;
+    if (!isOwner) {
+      if (listing.status === "CLOSED") {
+        throw new AppError("Anúncio não encontrado.", 404);
+      }
+      if (listing.status === "OPEN") {
+        const expiresAt = listing.expiresAt
+          ? new Date(listing.expiresAt).getTime()
+          : 0;
+        if (expiresAt > 0 && expiresAt <= Date.now()) {
+          throw new AppError("Anúncio não encontrado.", 404);
+        }
+      }
+    }
     let reputation: UserReputation = {
       averageRating: null,
       reviewCount: 0,
@@ -288,6 +316,7 @@ export class ListingsService {
       .select(LISTING_LIST_SELECT, { count: "exact" })
       .eq("userId", userId)
       .eq("status", "OPEN")
+      .gt("expiresAt", new Date().toISOString())
       .is("archivedAt", null)
       .order("createdAt", { ascending: false })
       .range(offset, offset + limit - 1);
@@ -330,6 +359,7 @@ export class ListingsService {
   ) {
     const listingId = newId();
     const price = resolvePriceFields(data);
+    const expiresAt = addListingTtlDays(new Date()).toISOString();
 
     const listing = assertNoError(
       await supabase
@@ -354,6 +384,8 @@ export class ListingsService {
           bairro: data.bairro ? sanitizeText(data.bairro, 80) : null,
           uf: data.uf.toUpperCase(),
           telefone: sanitizePhone(data.telefone),
+          expiresAt,
+          expiredByTtl: false,
         })
         .select(
           `*, User!Listing_userId_fkey(id, nome, cidade, uf), images:ListingImage(id, url, ordem)`
@@ -509,6 +541,7 @@ export class ListingsService {
         .from("Listing")
         .update({
           status: "CLOSED" as ListingStatus,
+          expiredByTtl: false,
           updatedAt: new Date().toISOString(),
         })
         .eq("id", listingId)
@@ -522,11 +555,32 @@ export class ListingsService {
 
   async reopen(listingId: string, userId: string) {
     await this.assertOwner(listingId, userId);
+    const current = assertNoError<
+      Pick<Tables<"Listing">, "id" | "expiresAt" | "status">
+    >(
+      await supabase
+        .from("Listing")
+        .select("id, expiresAt, status")
+        .eq("id", listingId)
+        .maybeSingle(),
+      "Anúncio não encontrado."
+    );
+
+    const expiresAt = current.expiresAt
+      ? new Date(current.expiresAt).getTime()
+      : 0;
+    if (!expiresAt || expiresAt <= Date.now()) {
+      throw badRequest(
+        "Anúncio expirado. Para reabrir, renove por R$ 15 e ganhe mais 15 dias."
+      );
+    }
+
     const updated = assertNoError(
       await supabase
         .from("Listing")
         .update({
           status: "OPEN" as ListingStatus,
+          expiredByTtl: false,
           updatedAt: new Date().toISOString(),
         })
         .eq("id", listingId)
@@ -536,6 +590,113 @@ export class ListingsService {
         .single()
     ) as ListingRow;
     return { listing: mapListing(updated, { includePhone: true, allImages: true }) };
+  }
+
+  /** Cron: OPEN com expiresAt vencido → CLOSED + expiredByTtl. */
+  async expireOpenListings(): Promise<{ expired: number }> {
+    const now = new Date().toISOString();
+    const { data, error } = await supabase
+      .from("Listing")
+      .update({
+        status: "CLOSED" as ListingStatus,
+        expiredByTtl: true,
+        updatedAt: now,
+      })
+      .eq("status", "OPEN")
+      .lte("expiresAt", now)
+      .select("id");
+
+    if (error) {
+      const err = new Error(error.message);
+      (err as Error & { statusCode: number }).statusCode = 500;
+      throw err;
+    }
+
+    return { expired: data?.length ?? 0 };
+  }
+
+  /**
+   * Apaga anúncios sem renovação após validade + graça (15+2 = 17 dias).
+   * Não remove anúncios com Transaction (histórico financeiro).
+   */
+  async purgeStaleListings(): Promise<{ purged: number; skippedWithTx: number }> {
+    const cutoff = new Date();
+    cutoff.setUTCDate(cutoff.getUTCDate() - LISTING_PURGE_GRACE_DAYS);
+    const cutoffIso = cutoff.toISOString();
+
+    const { data: candidates, error } = await supabase
+      .from("Listing")
+      .select("id")
+      .not("expiresAt", "is", null)
+      .lte("expiresAt", cutoffIso)
+      .neq("status", "IN_PROGRESS")
+      .limit(200);
+
+    if (error) {
+      const err = new Error(error.message);
+      (err as Error & { statusCode: number }).statusCode = 500;
+      throw err;
+    }
+
+    let purged = 0;
+    let skippedWithTx = 0;
+
+    for (const row of candidates ?? []) {
+      const { count: txCount, error: txErr } = await supabase
+        .from("Transaction")
+        .select("id", { count: "exact", head: true })
+        .eq("listingId", row.id);
+
+      if (txErr) {
+        console.warn("[purge] transaction check:", txErr.message);
+        continue;
+      }
+
+      if ((txCount ?? 0) > 0) {
+        skippedWithTx += 1;
+        continue;
+      }
+
+      // Imagens e demais FKs em cascade; remove imagens explicitamente por segurança.
+      await supabase.from("ListingImage").delete().eq("listingId", row.id);
+      const { error: delErr } = await supabase
+        .from("Listing")
+        .delete()
+        .eq("id", row.id);
+
+      if (delErr) {
+        console.warn(`[purge] listing ${row.id}:`, delErr.message);
+        continue;
+      }
+      purged += 1;
+    }
+
+    return { purged, skippedWithTx };
+  }
+
+  /** Após PIX de renovação pago: +15 dias e reabre se estava CLOSED. */
+  async applyPaidRenewal(listingId: string): Promise<void> {
+    const listing = assertNoError<
+      Pick<Tables<"Listing">, "id" | "expiresAt" | "status">
+    >(
+      await supabase
+        .from("Listing")
+        .select("id, expiresAt, status")
+        .eq("id", listingId)
+        .maybeSingle(),
+      "Anúncio não encontrado."
+    );
+
+    const expiresAt = computeRenewedExpiresAt(listing.expiresAt).toISOString();
+    await supabase
+      .from("Listing")
+      .update({
+        expiresAt,
+        status: "OPEN" as ListingStatus,
+        expiredByTtl: false,
+        updatedAt: new Date().toISOString(),
+      })
+      .eq("id", listingId);
   }
 
   async remove(listingId: string, userId: string) {

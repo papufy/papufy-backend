@@ -18,8 +18,10 @@ import {
 } from "../utils/paymentCheckout";
 import { publicFileUrl } from "../middleware/upload";
 import { chatService } from "./chat.service";
+import { listingsService } from "./listings.service";
 import { getPaymentProvider } from "../payments/provider";
 import { pagarmeProvider } from "../payments/pagarmeProvider";
+import { LISTING_RENEWAL_PRICE_BRL } from "../constants/listingTtl";
 
 interface CreateCheckoutInput extends CheckoutPaymentInput {
   listingId: string;
@@ -275,7 +277,9 @@ export class PaymentsService {
     }
 
     if (!env.paymentProvider) {
-      throw badRequest("Pagamentos não configurados.");
+      throw badRequest(
+        "Pagamentos temporariamente indisponíveis. Tente novamente em instantes."
+      );
     }
 
     const customerId = await this.ensurePspCustomer(
@@ -364,7 +368,7 @@ export class PaymentsService {
     const listingType = normalizeListingType(listing.tipo) ?? listing.tipo;
     if (listingType !== "PROFESSIONAL_PROFILE") {
       throw badRequest(
-        "Pagamento direto só está disponível para perfil profissional."
+        "Pagamento direto só está disponível em anúncios de profissionais."
       );
     }
     if (listing.userId === contractorId) {
@@ -372,7 +376,9 @@ export class PaymentsService {
     }
     const amountCandidate = amountOverride ?? listing.preco;
     if (!amountCandidate || amountCandidate <= 0 || listing.aCombinar) {
-      throw badRequest("Este serviço não possui valor fixo para checkout.");
+      throw badRequest(
+        "Este serviço não tem um valor fechado para pagamento. Combine o valor pelo chat."
+      );
     }
     const amountGross = Number(amountCandidate);
     const platformFee = Number((amountGross * 0.07).toFixed(2));
@@ -694,7 +700,7 @@ export class PaymentsService {
           .select("*")
           .eq("id", proposal.transactionId)
           .maybeSingle(),
-        "Transação da proposta não encontrada."
+        "Pagamento da proposta não encontrado."
       );
 
       const synced = await this.syncTransactionFromPsp(existing);
@@ -806,11 +812,11 @@ export class PaymentsService {
         .select("*")
         .eq("id", transactionId)
         .maybeSingle(),
-      "Transação não encontrada."
+      "Pagamento não encontrado."
     );
 
     if (tx.contractorId !== userId && tx.professionalId !== userId) {
-      throw forbidden("Sem permissão para esta transação.");
+      throw forbidden("Sem permissão para este pagamento.");
     }
 
     return this.syncTransactionFromPsp(tx);
@@ -1050,13 +1056,13 @@ export class PaymentsService {
         .select("*")
         .eq("id", transactionId)
         .maybeSingle(),
-      "Transação não encontrada."
+      "Pagamento não encontrado."
     );
     if (tx.contractorId !== userId && tx.professionalId !== userId) {
-      throw forbidden("Sem permissão para confirmar esta transação.");
+      throw forbidden("Sem permissão para confirmar este pagamento.");
     }
     if (tx.status !== "PAID" && tx.status !== "RELEASED") {
-      throw badRequest("Transação ainda não está apta para confirmação.");
+      throw badRequest("Ainda não é possível confirmar este pagamento.");
     }
 
     const patch: Partial<Tables<"Transaction">> = {
@@ -1111,6 +1117,138 @@ export class PaymentsService {
     return { transaction: finalTx };
   }
 
+  async createListingRenewal(
+    userId: string,
+    listingId: string,
+    payerProfile?: PaymentProfilePatch
+  ) {
+    const listing = assertNoError<
+      Pick<Tables<"Listing">, "id" | "userId" | "titulo" | "archivedAt">
+    >(
+      await supabase
+        .from("Listing")
+        .select("id, userId, titulo, archivedAt")
+        .eq("id", listingId)
+        .maybeSingle(),
+      "Anúncio não encontrado."
+    );
+
+    if (listing.archivedAt) {
+      throw badRequest("Este anúncio não pode mais ser renovado.");
+    }
+    if (listing.userId !== userId) {
+      throw forbidden("Somente o dono pode renovar este anúncio.");
+    }
+
+    const amountGross = LISTING_RENEWAL_PRICE_BRL;
+    const customerId = await this.ensurePspCustomer(userId, payerProfile);
+    const provider = getPaymentProvider();
+    const amountCents = Math.round(amountGross * 100);
+    const externalReference = `renew:${listing.id}:${userId}`.slice(0, 52);
+
+    const charge = await provider.chargePlatformOnly({
+      customerId,
+      amountCents,
+      description: `Papufy — renovação 15 dias: ${listing.titulo}`.slice(
+        0,
+        256
+      ),
+      externalReference,
+      billingType: "PIX",
+    });
+
+    const status: TransactionStatus =
+      charge.status === "PAID"
+        ? "PAID"
+        : charge.status === "CANCELED" || charge.status === "FAILED"
+          ? "CANCELED"
+          : "PENDING";
+
+    const raw = charge.raw as
+      | { id?: string; charges?: { id?: string }[] }
+      | undefined;
+    const orderId = raw?.id ?? null;
+    const chargeId = raw?.charges?.[0]?.id ?? charge.paymentId;
+
+    const renewal = assertNoError<Tables<"ListingRenewal">>(
+      await supabase
+        .from("ListingRenewal")
+        .insert({
+          id: newId(),
+          listingId: listing.id,
+          userId,
+          pagarmeOrderId: orderId,
+          pagarmeChargeId: chargeId,
+          paymentProvider: "pagarme",
+          amountGross,
+          billingType: "PIX",
+          status,
+          pixQrCodeImage: charge.pixQrCodeImage ?? null,
+          pixCopyPaste: charge.pixCopyPaste ?? null,
+          paidAt: status === "PAID" ? new Date().toISOString() : null,
+          updatedAt: new Date().toISOString(),
+        })
+        .select()
+        .single()
+    );
+
+    if (status === "PAID") {
+      await listingsService.applyPaidRenewal(listing.id);
+    }
+
+    return {
+      renewal,
+      pix: {
+        encodedImage: charge.pixQrCodeImage,
+        payload: charge.pixCopyPaste,
+      },
+    };
+  }
+
+  async getListingRenewalStatus(renewalId: string, userId: string) {
+    let renewal = assertNoError<Tables<"ListingRenewal">>(
+      await supabase
+        .from("ListingRenewal")
+        .select("*")
+        .eq("id", renewalId)
+        .maybeSingle(),
+      "Renovação não encontrada."
+    );
+
+    if (renewal.userId !== userId) {
+      throw forbidden("Sem permissão para esta renovação.");
+    }
+
+    if (renewal.status === "PENDING") {
+      const paymentId =
+        renewal.pagarmeChargeId?.trim() || renewal.pagarmeOrderId?.trim();
+      if (paymentId) {
+        try {
+          const { status } = await pagarmeProvider.getPaymentStatus(paymentId);
+          if (status === "PAID") {
+            renewal = assertNoError<Tables<"ListingRenewal">>(
+              await supabase
+                .from("ListingRenewal")
+                .update({
+                  status: "PAID",
+                  paidAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString(),
+                })
+                .eq("id", renewal.id)
+                .select()
+                .single()
+            );
+            await listingsService.applyPaidRenewal(renewal.listingId);
+          }
+        } catch {
+          /* mantém PENDING */
+        }
+      }
+    }
+
+    return { renewal };
+  }
+
   async handleWebhook(payload: Record<string, unknown>) {
     // Pagar.me: { type: "charge.paid", data: { id, ... } }
     const pagarmeType =
@@ -1124,6 +1262,52 @@ export class PaymentsService {
 
     if (!pagarmeType || !pagarmeChargeId) {
       return { ignored: true };
+    }
+
+    const { data: renewal } = await supabase
+      .from("ListingRenewal")
+      .select("*")
+      .or(
+        `pagarmeChargeId.eq.${pagarmeChargeId},pagarmeOrderId.eq.${pagarmeChargeId}`
+      )
+      .maybeSingle();
+
+    if (renewal) {
+      if (
+        pagarmeType === "charge.paid" ||
+        pagarmeType === "order.paid" ||
+        pagarmeType === "charge.captured"
+      ) {
+        if (renewal.status !== "PAID") {
+          await supabase
+            .from("ListingRenewal")
+            .update({
+              status: "PAID",
+              paidAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            })
+            .eq("id", renewal.id);
+          await listingsService.applyPaidRenewal(renewal.listingId);
+        }
+        return { updated: true, kind: "listing_renewal", provider: "pagarme" };
+      }
+
+      if (
+        pagarmeType === "charge.payment_failed" ||
+        pagarmeType === "charge.canceled" ||
+        pagarmeType === "order.canceled"
+      ) {
+        await supabase
+          .from("ListingRenewal")
+          .update({
+            status: "CANCELED",
+            updatedAt: new Date().toISOString(),
+          })
+          .eq("id", renewal.id);
+        return { updated: true, kind: "listing_renewal", provider: "pagarme" };
+      }
+
+      return { ignored: true, kind: "listing_renewal", provider: "pagarme" };
     }
 
     const { data: tx } = await supabase
@@ -1204,7 +1388,7 @@ export class PaymentsService {
         .select("*")
         .eq("id", input.transactionId)
         .maybeSingle(),
-      "Transação não encontrada."
+      "Pagamento não encontrado."
     );
     if (tx.status !== "PAID") {
       throw badRequest("Só é possível reportar após confirmação de pagamento.");

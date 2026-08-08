@@ -12,7 +12,7 @@ export class UserUploadController {
       const userId = req.userId!;
       const file = req.file;
       if (!file) {
-        throw badRequest("Envie uma imagem no campo foto.");
+        throw badRequest("Envie uma foto.");
       }
       const result = await userUploadService.uploadFoto(userId, file);
       res.status(201).json({
@@ -41,7 +41,7 @@ export class UserUploadController {
       const userId = req.userId!;
       const file = req.file;
       if (!file) {
-        throw badRequest("Envie um arquivo PDF no campo curriculo.");
+        throw badRequest("Envie um currículo em PDF.");
       }
       const result = await userUploadService.uploadCurriculo(userId, file);
       res.status(201).json({
@@ -58,7 +58,7 @@ export class UserUploadController {
       const userId = req.userId!;
       const files = req.files as Express.Multer.File[] | undefined;
       if (!files?.length) {
-        throw badRequest("Envie ao menos uma imagem no campo certificados.");
+        throw badRequest("Envie ao menos uma imagem de certificado.");
       }
 
       let nomes: string[] | undefined;

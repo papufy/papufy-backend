@@ -35,7 +35,7 @@ export async function uploadListingImage(
 
   if (error) {
     throw new AppError(
-      `Falha ao salvar imagem no storage: ${error.message}`,
+      "Não foi possível salvar a imagem. Tente novamente.",
       500
     );
   }

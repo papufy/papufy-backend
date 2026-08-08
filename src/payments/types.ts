@@ -69,6 +69,16 @@ export interface ChargeWithSplitInput extends CheckoutPaymentInput {
   externalReference: string;
 }
 
+/** Cobrança 100% na conta da plataforma (sem split marketplace). */
+export interface ChargePlatformOnlyInput {
+  customerId: string;
+  amountCents: number;
+  description: string;
+  externalReference: string;
+  /** Só PIX na v1 de renovação. */
+  billingType?: "PIX";
+}
+
 export interface PspBalanceResult {
   /** Saldo disponível em reais */
   available: number;
@@ -106,6 +116,8 @@ export interface PaymentProvider {
   ): Promise<PspRecipientResult>;
 
   chargeWithSplit(input: ChargeWithSplitInput): Promise<PspChargeResult>;
+
+  chargePlatformOnly(input: ChargePlatformOnlyInput): Promise<PspChargeResult>;
 
   getPaymentStatus(paymentId: string): Promise<{
     status: "PENDING" | "PAID" | "CANCELED" | "FAILED";

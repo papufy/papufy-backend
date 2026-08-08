@@ -32,3 +32,27 @@ services:
         sync: false
       - key: UPLOAD_DIR
         value: ./uploads
+      - key: CRON_SECRET
+        generateValue: true
+
+  # Expira anúncios OPEN com expiresAt vencido (1x/dia, 09:00 UTC)
+  - type: cron
+    name: papufy-expire-listings
+    runtime: node
+    region: oregon
+    # Cron no Render exige plano pago (starter+). Sem cartão: use curl externo diário no mesmo endpoint.
+    plan: starter
+    schedule: "0 9 * * *"
+    buildCommand: npm ci --omit=dev
+    startCommand: node scripts/expire-listings-cron.mjs
+    envVars:
+      - key: CRON_SECRET
+        fromService:
+          name: papufy-api
+          type: web
+          envVarKey: CRON_SECRET
+      - key: PUBLIC_BASE_URL
+        fromService:
+          name: papufy-api
+          type: web
+          envVarKey: PUBLIC_BASE_URL

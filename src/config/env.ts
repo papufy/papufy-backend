@@ -80,6 +80,12 @@ const envSchema = z.object({
     const v = value.trim();
     return v || undefined;
   }, z.string().optional()),
+  /** Secret do cron interno (POST /internal/expire-listings) */
+  CRON_SECRET: z.preprocess((value) => {
+    if (typeof value !== "string") return undefined;
+    const v = value.trim();
+    return v || undefined;
+  }, z.string().min(16).optional()),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -193,4 +199,5 @@ export const env = {
   PAGARME_SECRET_KEY: config.PAGARME_SECRET_KEY ?? "",
   PAGARME_WEBHOOK_SECRET: config.PAGARME_WEBHOOK_SECRET ?? "",
   PAGARME_PLATFORM_RECIPIENT_ID: config.PAGARME_PLATFORM_RECIPIENT_ID ?? "",
+  CRON_SECRET: config.CRON_SECRET ?? "",
 };

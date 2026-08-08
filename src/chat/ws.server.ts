@@ -76,7 +76,7 @@ export function setupWebSocket(server: Server) {
       req.headers["sec-websocket-protocol"]?.toString();
 
     if (!token) {
-      send(socket, { type: "error", message: "Token ausente." });
+      send(socket, { type: "error", message: "Faça login para continuar." });
       socket.close();
       return;
     }
@@ -93,7 +93,10 @@ export function setupWebSocket(server: Server) {
       send(socket, { type: "connected", userId: payload.sub });
       void broadcastUnread(payload.sub);
     } catch {
-      send(socket, { type: "error", message: "Token inválido." });
+      send(socket, {
+        type: "error",
+        message: "Sua sessão expirou. Entre novamente.",
+      });
       socket.close();
       return;
     }

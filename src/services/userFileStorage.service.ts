@@ -38,7 +38,7 @@ export async function uploadUserFile(
 
   if (error) {
     throw new AppError(
-      `Falha ao salvar arquivo no storage: ${error.message}`,
+      "Não foi possível salvar o arquivo. Tente novamente.",
       500
     );
   }

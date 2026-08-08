@@ -44,6 +44,60 @@ export type Database = {
           },
         ];
       };
+      AppNotification: {
+        Row: {
+          id: string;
+          userId: string;
+          listingId: string | null;
+          type: string;
+          title: string;
+          body: string;
+          href: string | null;
+          refExpiresAt: string | null;
+          readAt: string | null;
+          createdAt: string;
+        };
+        Insert: {
+          id: string;
+          userId: string;
+          listingId?: string | null;
+          type: string;
+          title: string;
+          body: string;
+          href?: string | null;
+          refExpiresAt?: string | null;
+          readAt?: string | null;
+          createdAt?: string;
+        };
+        Update: {
+          id?: string;
+          userId?: string;
+          listingId?: string | null;
+          type?: string;
+          title?: string;
+          body?: string;
+          href?: string | null;
+          refExpiresAt?: string | null;
+          readAt?: string | null;
+          createdAt?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "AppNotification_userId_fkey";
+            columns: ["userId"];
+            isOneToOne: false;
+            referencedRelation: "User";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "AppNotification_listingId_fkey";
+            columns: ["listingId"];
+            isOneToOne: false;
+            referencedRelation: "Listing";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       ListingFavorite: {
         Row: {
           id: string;
@@ -246,6 +300,72 @@ export type Database = {
           },
         ];
       };
+      ListingRenewal: {
+        Row: {
+          id: string;
+          listingId: string;
+          userId: string;
+          pagarmeOrderId: string | null;
+          pagarmeChargeId: string | null;
+          paymentProvider: string | null;
+          amountGross: number;
+          billingType: Database["public"]["Enums"]["BillingType"];
+          status: Database["public"]["Enums"]["TransactionStatus"];
+          pixQrCodeImage: string | null;
+          pixCopyPaste: string | null;
+          paidAt: string | null;
+          createdAt: string;
+          updatedAt: string;
+        };
+        Insert: {
+          id: string;
+          listingId: string;
+          userId: string;
+          pagarmeOrderId?: string | null;
+          pagarmeChargeId?: string | null;
+          paymentProvider?: string | null;
+          amountGross: number;
+          billingType?: Database["public"]["Enums"]["BillingType"];
+          status?: Database["public"]["Enums"]["TransactionStatus"];
+          pixQrCodeImage?: string | null;
+          pixCopyPaste?: string | null;
+          paidAt?: string | null;
+          createdAt?: string;
+          updatedAt?: string;
+        };
+        Update: {
+          id?: string;
+          listingId?: string;
+          userId?: string;
+          pagarmeOrderId?: string | null;
+          pagarmeChargeId?: string | null;
+          paymentProvider?: string | null;
+          amountGross?: number;
+          billingType?: Database["public"]["Enums"]["BillingType"];
+          status?: Database["public"]["Enums"]["TransactionStatus"];
+          pixQrCodeImage?: string | null;
+          pixCopyPaste?: string | null;
+          paidAt?: string | null;
+          createdAt?: string;
+          updatedAt?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ListingRenewal_listingId_fkey";
+            columns: ["listingId"];
+            isOneToOne: false;
+            referencedRelation: "Listing";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "ListingRenewal_userId_fkey";
+            columns: ["userId"];
+            isOneToOne: false;
+            referencedRelation: "User";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       Listing: {
         Row: {
           aCombinar: boolean;
@@ -255,6 +375,8 @@ export type Database = {
           cidade: string;
           createdAt: string;
           descricao: string;
+          expiresAt: string | null;
+          expiredByTtl: boolean;
           id: string;
           preco: number | null;
           precoMin: number | null;
@@ -279,6 +401,8 @@ export type Database = {
           cidade: string;
           createdAt?: string;
           descricao: string;
+          expiresAt?: string | null;
+          expiredByTtl?: boolean;
           id: string;
           preco?: number | null;
           precoMin?: number | null;
@@ -302,6 +426,8 @@ export type Database = {
           cidade?: string;
           createdAt?: string;
           descricao?: string;
+          expiresAt?: string | null;
+          expiredByTtl?: boolean;
           id?: string;
           preco?: number | null;
           precoMin?: number | null;
