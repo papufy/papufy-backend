@@ -144,7 +144,7 @@ export class PaymentsService {
   ): Promise<string> {
     if (!env.paymentsEnabled || !env.paymentProvider) {
       throw badRequest(
-        "Pagamentos não configurados. Defina PAGARME_SECRET_KEY no Render."
+        "Pagamentos temporariamente indisponíveis. Tente novamente em instantes."
       );
     }
 
@@ -202,7 +202,7 @@ export class PaymentsService {
       }
       const detail = err instanceof Error ? err.message : "erro desconhecido";
       throw badRequest(
-        `Não foi possível registrar seu cadastro de pagamento no Pagar.me. ${detail}`
+        `Não foi possível registrar seu cadastro de pagamento. ${detail}`
       );
     }
   }
@@ -237,14 +237,14 @@ export class PaymentsService {
       throw new PaymentProfileIncompleteError(
         ["cpfCnpj"],
         "receiver",
-        "O profissional precisa completar CPF/CNPJ e dados bancários para receber via Pagar.me."
+        "O profissional precisa completar CPF/CNPJ e dados bancários para receber pagamentos."
       );
     }
 
     throw new PaymentProfileIncompleteError(
       ["bankAccount"],
       "receiver",
-      "O profissional precisa cadastrar conta bancária (Pagar.me) antes de receber pagamentos."
+      "O profissional precisa cadastrar a conta bancária na Carteira antes de receber pagamentos."
     );
   }
 
@@ -1013,7 +1013,7 @@ export class PaymentsService {
     const pspBalance = await pagarmeProvider.getBalance({ recipientId });
     if (value > pspBalance.available + 0.009) {
       throw badRequest(
-        `Saldo insuficiente na Pagar.me. Disponível: R$ ${pspBalance.available.toFixed(2).replace(".", ",")}.`
+        `Saldo insuficiente para saque. Disponível: R$ ${pspBalance.available.toFixed(2).replace(".", ",")}.`
       );
     }
 

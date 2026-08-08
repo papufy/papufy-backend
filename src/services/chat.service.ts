@@ -712,7 +712,7 @@ export class ChatService {
         throw new PaymentProfileIncompleteError(
           ["bankAccount"],
           "receiver",
-          "Cadastre sua conta bancária (Pagar.me) no perfil antes de enviar propostas."
+          "Cadastre sua conta bancária na Carteira antes de enviar propostas."
         );
       }
     }

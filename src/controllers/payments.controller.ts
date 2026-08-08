@@ -127,7 +127,7 @@ const subaccountWithdrawSchema = z.object({
 function assertPaymentsEnabled(): void {
   if (!env.paymentsEnabled) {
     throw badRequest(
-      "Pagamentos não configurados. Defina PAGARME_SECRET_KEY no Render."
+      "Pagamentos temporariamente indisponíveis. Tente novamente em instantes."
     );
   }
 }

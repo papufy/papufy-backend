@@ -38,7 +38,7 @@ function birthdateBr(isoOrNull?: string | null): string {
   const iso = normalizeBirthDateIso(isoOrNull);
   if (!iso) {
     throw badRequest(
-      "Informe a data de nascimento para cadastrar o recebedor na Pagar.me."
+      "Informe a data de nascimento para cadastrar a conta de recebimento."
     );
   }
   const [y, m, d] = iso.split("-");
@@ -88,7 +88,7 @@ export const pagarmeProvider: PaymentProvider = {
     });
 
     if (!customer.id) {
-      throw badRequest("Pagar.me não retornou customer id.");
+      throw badRequest("Não foi possível concluir o cadastro de pagamento. Tente novamente.");
     }
     return { customerId: customer.id };
   },
@@ -106,12 +106,12 @@ export const pagarmeProvider: PaymentProvider = {
 
     if (!input.bankAccount) {
       throw badRequest(
-        "Para receber na Pagar.me, informe os dados da conta bancária."
+        "Para receber pagamentos, informe os dados da conta bancária."
       );
     }
     if (!input.address) {
       throw badRequest(
-        "Para receber na Pagar.me, informe o endereço completo do recebedor."
+        "Para receber pagamentos, informe o endereço completo."
       );
     }
 
@@ -206,7 +206,7 @@ export const pagarmeProvider: PaymentProvider = {
     });
 
     if (!recipient.id) {
-      throw badRequest("Pagar.me não retornou recipient id.");
+      throw badRequest("Não foi possível concluir o cadastro de recebimento. Tente novamente.");
     }
 
     return {
@@ -366,7 +366,7 @@ export const pagarmeProvider: PaymentProvider = {
     });
 
     if (!transfer.id) {
-      throw badRequest("Pagar.me não retornou id da transferência.");
+      throw badRequest("Não foi possível concluir o saque. Tente novamente.");
     }
 
     return {
