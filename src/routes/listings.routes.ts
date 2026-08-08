@@ -25,6 +25,17 @@ listingsRoutes.get("/mine", requireAuth, (req, res, next) =>
   listingsController.listMine(req, res, next)
 );
 
+listingsRoutes.get("/favorites", requireAuth, (req, res, next) =>
+  listingsController.listFavorites(req, res, next)
+);
+
+listingsRoutes.post(
+  "/:id/favorite",
+  requireAuth,
+  validateResourceId(),
+  (req, res, next) => listingsController.toggleFavorite(req, res, next)
+);
+
 listingsRoutes.get("/:id", validateResourceId(), optionalAuth, (req, res, next) =>
   listingsController.getById(req, res, next)
 );

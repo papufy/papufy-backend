@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import { z } from "zod";
+import { listingFavoritesService } from "../services/listingFavorites.service";
 import { listingsService } from "../services/listings.service";
 import { uploadListingImages } from "../services/listingImageStorage.service";
 import { normalizeListingType, type ListingType } from "../types/enums";
@@ -278,6 +279,27 @@ export class ListingsController {
       const id = String(req.params.id);
       await listingsService.remove(id, userId);
       res.status(204).send();
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async listFavorites(req: Request, res: Response, next: NextFunction) {
+    try {
+      const ids = await listingFavoritesService.listIds(req.user!.id);
+      res.json({ listingIds: ids });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async toggleFavorite(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await listingFavoritesService.toggle(
+        req.user!.id,
+        String(req.params.id)
+      );
+      res.json(result);
     } catch (err) {
       next(err);
     }

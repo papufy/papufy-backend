@@ -44,6 +44,42 @@ export type Database = {
           },
         ];
       };
+      ListingFavorite: {
+        Row: {
+          id: string;
+          userId: string;
+          listingId: string;
+          createdAt: string;
+        };
+        Insert: {
+          id: string;
+          userId: string;
+          listingId: string;
+          createdAt?: string;
+        };
+        Update: {
+          id?: string;
+          userId?: string;
+          listingId?: string;
+          createdAt?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ListingFavorite_userId_fkey";
+            columns: ["userId"];
+            isOneToOne: false;
+            referencedRelation: "User";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "ListingFavorite_listingId_fkey";
+            columns: ["listingId"];
+            isOneToOne: false;
+            referencedRelation: "Listing";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       Conversation: {
         Row: {
           contractorId: string;

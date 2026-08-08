@@ -187,6 +187,32 @@ export async function ensureDatabaseSchema(): Promise<void> {
       console.warn("[schema] Bucket user-files (aviso):", msg);
     }
 
+    // --- Favoritos de anúncios ---
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS "ListingFavorite" (
+          "id" TEXT PRIMARY KEY,
+          "userId" TEXT NOT NULL REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+          "listingId" TEXT NOT NULL REFERENCES "Listing"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await ensureIndex(
+        client,
+        "ListingFavorite_userId_listingId_key",
+        `CREATE UNIQUE INDEX "ListingFavorite_userId_listingId_key" ON "ListingFavorite" ("userId", "listingId")`
+      );
+      await ensureIndex(
+        client,
+        "ListingFavorite_userId_idx",
+        `CREATE INDEX "ListingFavorite_userId_idx" ON "ListingFavorite" ("userId")`
+      );
+      console.log("[schema] ListingFavorite ok.");
+    } catch (favErr) {
+      const msg = favErr instanceof Error ? favErr.message : String(favErr);
+      console.warn("[schema] ListingFavorite (aviso):", msg);
+    }
+
     console.log("[schema] Schema ok.");
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
