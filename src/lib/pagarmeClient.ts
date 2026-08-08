@@ -8,17 +8,30 @@ interface PagarmeErrorBody {
 
 function extractPagarmeMessage(json: unknown): string {
   if (!json || typeof json !== "object") {
-    return "Erro ao comunicar com Pagar.me.";
+    return "Não foi possível concluir a operação de pagamento. Tente novamente.";
   }
   const body = json as PagarmeErrorBody;
-  if (body.message?.trim()) return body.message.trim();
-  if (body.errors && typeof body.errors === "object") {
-    const parts = Object.entries(body.errors).flatMap(([field, msgs]) =>
-      (msgs ?? []).map((m) => `${field}: ${m}`)
-    );
-    if (parts.length) return parts.join(" ");
+  const raw =
+    body.message?.trim() ||
+    (body.errors && typeof body.errors === "object"
+      ? Object.entries(body.errors)
+          .flatMap(([field, msgs]) =>
+            (msgs ?? []).map((m) => `${field}: ${m}`)
+          )
+          .join(" ")
+      : "");
+
+  const lower = raw.toLowerCase();
+  if (
+    lower.includes("split setting") ||
+    lower.includes("create a recipient") ||
+    lower.includes("create a recipeint")
+  ) {
+    return "Recebimentos ainda não estão liberados nesta conta. Ative o Marketplace/Split no painel Stone/Pagar.me ou fale com o suporte.";
   }
-  return "Erro ao comunicar com Pagar.me.";
+
+  if (raw) return raw;
+  return "Não foi possível concluir a operação de pagamento. Tente novamente.";
 }
 
 function basicAuthHeader(secretKey: string): string {
@@ -33,7 +46,7 @@ export async function pagarmeRequest<T>(
 ): Promise<T> {
   if (!env.PAGARME_SECRET_KEY) {
     throw badRequest(
-      "Pagamentos Pagar.me não configurados. Defina PAGARME_SECRET_KEY."
+      "Pagamentos temporariamente indisponíveis. Tente novamente em instantes."
     );
   }
 
@@ -55,7 +68,7 @@ export async function pagarmeRequest<T>(
   } catch (err) {
     const detail = err instanceof Error ? err.message : "falha de rede";
     throw badRequest(
-      `Não foi possível conectar ao Pagar.me. Verifique PAGARME_API_URL e a rede. (${detail})`
+      "Não foi possível conectar ao serviço de pagamentos. Tente novamente em instantes."
     );
   }
 
