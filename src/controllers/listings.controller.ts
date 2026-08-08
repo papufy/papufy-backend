@@ -195,7 +195,9 @@ export class ListingsController {
         aCombinar: body.aCombinar,
         diferenciais: body.diferenciais ?? null,
         categoria: body.categoria?.trim() || "Geral",
-        semQualificacao: body.semQualificacao,
+        // Só pedidos (JOB_VACANCY) usam "sem qualificação".
+        semQualificacao:
+          listingType === "JOB_VACANCY" ? body.semQualificacao : false,
         cep: body.cep,
         cidade: body.cidade,
         bairro: body.bairro,

@@ -87,10 +87,13 @@ function mapListing(
   const images = [...(listing.images ?? [])].sort((a, b) => a.ordem - b.ordem);
   const visibleImages = options?.allImages ? images : images.slice(0, 1);
 
+  const listingType = normalizeListingType(listing.tipo) ?? listing.tipo;
+  const isJobVacancy = listingType === "JOB_VACANCY";
+
   return {
     id: listing.id,
     userId: listing.userId,
-    listingType: normalizeListingType(listing.tipo) ?? listing.tipo,
+    listingType,
     titulo: listing.titulo,
     descricao: listing.descricao,
     preco: listing.preco,
@@ -99,7 +102,7 @@ function mapListing(
     aCombinar: listing.aCombinar,
     diferenciais: listing.diferenciais ?? null,
     categoria: listing.categoria,
-    semQualificacao: listing.semQualificacao ?? false,
+    semQualificacao: isJobVacancy ? listing.semQualificacao ?? false : false,
     status: listing.status,
     cep: listing.cep,
     cidade: listing.cidade,
@@ -121,11 +124,11 @@ function mapListing(
 export class ListingsService {
   private async assertOwner(listingId: string, userId: string) {
     const listing = assertNoError<
-      Pick<Tables<"Listing">, "id" | "userId" | "aCombinar">
+      Pick<Tables<"Listing">, "id" | "userId" | "aCombinar" | "tipo" | "semQualificacao">
     >(
       await supabase
         .from("Listing")
-        .select("id, userId, aCombinar")
+        .select("id, userId, aCombinar, tipo, semQualificacao")
         .eq("id", listingId)
         .maybeSingle(),
       "Anúncio não encontrado."
@@ -478,7 +481,11 @@ export class ListingsService {
       patch.telefone = sanitizePhone(data.telefone);
     }
     if (data.semQualificacao !== undefined) {
-      patch.semQualificacao = data.semQualificacao;
+      patch.semQualificacao =
+        current.tipo === "JOB_VACANCY" ? data.semQualificacao : false;
+    } else if (current.tipo === "PROFESSIONAL_PROFILE" && current.semQualificacao) {
+      // Limpa flag legada em perfis profissionais.
+      patch.semQualificacao = false;
     }
 
     const updated = assertNoError(
