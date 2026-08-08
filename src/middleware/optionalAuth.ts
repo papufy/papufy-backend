@@ -6,7 +6,7 @@ import { verifyToken } from "../utils/jwt";
 type PublicUser = Omit<Tables<"User">, "senha">;
 
 const USER_PUBLIC_SELECT =
-  "id, nome, email, telefone, cidade, uf, curriculoUrl, cpfCnpj, pagarmeCustomerId, pagarmeRecipientId, createdAt, updatedAt";
+  "id, nome, email, telefone, cidade, uf, curriculoUrl, fotoUrl, cpfCnpj, pagarmeCustomerId, pagarmeRecipientId, createdAt, updatedAt";
 
 export async function optionalAuth(
   req: Request,

@@ -597,6 +597,7 @@ export type Database = {
           cidade: string | null;
           createdAt: string;
           curriculoUrl: string | null;
+          fotoUrl: string | null;
           email: string;
           id: string;
           nome: string;
@@ -620,6 +621,7 @@ export type Database = {
           cidade?: string | null;
           createdAt?: string;
           curriculoUrl?: string | null;
+          fotoUrl?: string | null;
           email: string;
           id: string;
           nome: string;
@@ -643,6 +645,7 @@ export type Database = {
           cidade?: string | null;
           createdAt?: string;
           curriculoUrl?: string | null;
+          fotoUrl?: string | null;
           email?: string;
           id?: string;
           nome?: string;

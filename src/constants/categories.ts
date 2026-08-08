@@ -6,6 +6,7 @@ export const JOB_VACANCY_CATEGORIES = [
   "Design e Tecnologia",
   "Aulas e Consultoria",
   "Eventos",
+  "Outros",
 ] as const;
 
 /** Categorias para perfil profissional (PROFESSIONAL_PROFILE) */

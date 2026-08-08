@@ -6,8 +6,10 @@ import { requireAuth } from "../middleware/auth";
 import {
   uploadCertificados,
   uploadCurriculo,
+  uploadFotoPerfil,
   validateCertificadosUpload,
   validateCurriculoUpload,
+  validateFotoPerfilUpload,
 } from "../middleware/upload";
 import { rateLimit } from "../middleware/rateLimit";
 import { validateResourceId } from "../middleware/validateId";
@@ -19,6 +21,19 @@ const uploadLimiter = rateLimit({
   max: 15,
   keyPrefix: "user-upload",
 });
+
+userRoutes.post(
+  "/upload-foto",
+  requireAuth,
+  uploadLimiter,
+  uploadFotoPerfil,
+  validateFotoPerfilUpload,
+  (req, res, next) => userUploadController.uploadFoto(req, res, next)
+);
+
+userRoutes.delete("/foto", requireAuth, (req, res, next) =>
+  userUploadController.removeFoto(req, res, next)
+);
 
 userRoutes.post(
   "/upload-curriculo",

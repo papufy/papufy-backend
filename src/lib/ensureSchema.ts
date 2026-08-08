@@ -113,6 +113,9 @@ export async function ensureDatabaseSchema(): Promise<void> {
   try {
     await client.connect();
 
+    // --- Perfil ---
+    await addColumnIfMissing(client, "User", "fotoUrl", "TEXT");
+
     // --- Pagar.me columns ---
     await addColumnIfMissing(client, "User", "pagarmeCustomerId", "TEXT");
     await addColumnIfMissing(client, "User", "pagarmeRecipientId", "TEXT");
@@ -142,7 +145,49 @@ export async function ensureDatabaseSchema(): Promise<void> {
     await dropColumnIfPresent(client, "User", "asaasAccountId");
     await dropColumnIfPresent(client, "User", "asaasSubaccountApiKey");
 
-    console.log("[schema] Schema Pagar.me ok.");
+    // Bucket público para foto/currículo/certificados (idempotente)
+    try {
+      await client.query(`
+        INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+        VALUES (
+          'user-files',
+          'user-files',
+          true,
+          5242880,
+          ARRAY['image/jpeg', 'image/png', 'application/pdf']::text[]
+        )
+        ON CONFLICT (id) DO UPDATE
+        SET
+          public = EXCLUDED.public,
+          file_size_limit = EXCLUDED.file_size_limit,
+          allowed_mime_types = EXCLUDED.allowed_mime_types
+      `);
+      await client.query(`
+        DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_policies
+            WHERE schemaname = 'storage'
+              AND tablename = 'objects'
+              AND policyname = 'Public read user files'
+          ) THEN
+            CREATE POLICY "Public read user files"
+            ON storage.objects
+            FOR SELECT
+            TO public
+            USING (bucket_id = 'user-files');
+          END IF;
+        END
+        $$;
+      `);
+      console.log("[schema] Bucket user-files ok.");
+    } catch (bucketErr) {
+      const msg =
+        bucketErr instanceof Error ? bucketErr.message : String(bucketErr);
+      console.warn("[schema] Bucket user-files (aviso):", msg);
+    }
+
+    console.log("[schema] Schema ok.");
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[schema] Falha ao aplicar migração:", message);

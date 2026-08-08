@@ -10,6 +10,7 @@ export const authUserSelect = {
   pagarmeCustomerId: true,
   pagarmeRecipientId: true,
   curriculoUrl: true,
+  fotoUrl: true,
   createdAt: true,
   updatedAt: true,
 } as const;

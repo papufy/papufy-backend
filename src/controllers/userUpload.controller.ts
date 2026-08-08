@@ -7,6 +7,35 @@ import { sanitizeText } from "../utils/sanitize";
 const nomesSchema = z.array(z.string().min(1).max(120)).max(8);
 
 export class UserUploadController {
+  async uploadFoto(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = req.userId!;
+      const file = req.file;
+      if (!file) {
+        throw badRequest("Envie uma imagem no campo foto.");
+      }
+      const result = await userUploadService.uploadFoto(userId, file);
+      res.status(201).json({
+        message: "Foto atualizada com sucesso.",
+        ...result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async removeFoto(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await userUploadService.removeFoto(req.userId!);
+      res.json({
+        message: "Foto removida.",
+        ...result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async uploadCurriculo(req: Request, res: Response, next: NextFunction) {
     try {
       const userId = req.userId!;
@@ -14,10 +43,7 @@ export class UserUploadController {
       if (!file) {
         throw badRequest("Envie um arquivo PDF no campo curriculo.");
       }
-      const result = await userUploadService.uploadCurriculo(
-        userId,
-        file.filename
-      );
+      const result = await userUploadService.uploadCurriculo(userId, file);
       res.status(201).json({
         message: "Currículo enviado com sucesso.",
         ...result,

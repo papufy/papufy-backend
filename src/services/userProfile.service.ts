@@ -15,6 +15,7 @@ type PublicUserRow = {
   aptidoes: unknown;
   horariosDisponiveis: unknown;
   curriculoUrl: string | null;
+  fotoUrl: string | null;
 };
 
 export class UserProfileService {
@@ -23,7 +24,7 @@ export class UserProfileService {
       await supabase
         .from("User")
         .select(
-          "id, nome, cidade, uf, email, telefone, createdAt, updatedAt, aptidoes, horariosDisponiveis, curriculoUrl"
+          "id, nome, cidade, uf, email, telefone, createdAt, updatedAt, aptidoes, horariosDisponiveis, curriculoUrl, fotoUrl"
         )
         .eq("id", userId)
         .maybeSingle(),
@@ -58,6 +59,7 @@ export class UserProfileService {
         nome: user.nome,
         cidade: user.cidade,
         uf: user.uf,
+        fotoUrl: user.fotoUrl,
         memberSince: user.createdAt,
         lastSeenAt: user.updatedAt,
         verifiedEmail: Boolean(user.email),

@@ -64,6 +64,7 @@ type ListingRow = {
     nome: string;
     cidade: string | null;
     uf: string | null;
+    fotoUrl?: string | null;
     createdAt?: string;
     updatedAt?: string;
     telefone?: string | null;
@@ -225,7 +226,7 @@ export class ListingsService {
       await supabase
         .from("Listing")
         .select(
-          `*, User!Listing_userId_fkey(id, nome, cidade, uf, createdAt, updatedAt, telefone, email), images:ListingImage(id, url, ordem)`
+          `*, User!Listing_userId_fkey(id, nome, cidade, uf, fotoUrl, createdAt, updatedAt, telefone, email), images:ListingImage(id, url, ordem)`
         )
         .eq("id", id)
         .maybeSingle(),
@@ -259,6 +260,7 @@ export class ListingsService {
               nome: publisher.nome,
               cidade: publisher.cidade,
               uf: publisher.uf,
+              fotoUrl: publisher.fotoUrl ?? null,
               memberSince: publisher.createdAt,
               lastSeenAt: publisher.updatedAt,
               verifiedEmail: Boolean(publisher.email),

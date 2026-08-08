@@ -33,7 +33,7 @@ export async function requireAuth(
       await supabase
         .from("User")
         .select(
-          "id, nome, email, telefone, cidade, uf, curriculoUrl, cpfCnpj, pagarmeCustomerId, pagarmeRecipientId, createdAt, updatedAt"
+          "id, nome, email, telefone, cidade, uf, curriculoUrl, fotoUrl, cpfCnpj, pagarmeCustomerId, pagarmeRecipientId, createdAt, updatedAt"
         )
         .eq("id", payload.sub)
         .maybeSingle()
