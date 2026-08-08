@@ -44,8 +44,8 @@ export function isValidBirthDate(value: string): boolean {
   return age >= 18 && age <= 120;
 }
 
-/** Formato exigido pelo Asaas: YYYY-MM-DD */
-export function normalizeAsaasBirthDate(
+/** Normaliza data para YYYY-MM-DD (ISO curto). */
+export function normalizeBirthDateIso(
   value: string | null | undefined
 ): string | undefined {
   if (!value?.trim()) return undefined;

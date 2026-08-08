@@ -437,7 +437,9 @@ export type Database = {
           listingId: string;
           contractorId: string;
           professionalId: string;
-          asaasPaymentId: string | null;
+          pagarmeOrderId: string | null;
+          pagarmeChargeId: string | null;
+          paymentProvider: string | null;
           amountGross: number;
           platformFee: number;
           professionalNet: number;
@@ -463,7 +465,9 @@ export type Database = {
           listingId: string;
           contractorId: string;
           professionalId: string;
-          asaasPaymentId?: string | null;
+          pagarmeOrderId?: string | null;
+          pagarmeChargeId?: string | null;
+          paymentProvider?: string | null;
           amountGross: number;
           platformFee: number;
           professionalNet: number;
@@ -489,7 +493,9 @@ export type Database = {
           listingId?: string;
           contractorId?: string;
           professionalId?: string;
-          asaasPaymentId?: string | null;
+          pagarmeOrderId?: string | null;
+          pagarmeChargeId?: string | null;
+          paymentProvider?: string | null;
           amountGross?: number;
           platformFee?: number;
           professionalNet?: number;
@@ -606,10 +612,9 @@ export type Database = {
             horaInicio: string;
             horaFim: string;
           }[];
-          asaasCustomerId: string | null;
-          asaasWalletId: string | null;
-          asaasAccountId: string | null;
-          asaasSubaccountApiKey: string | null;
+          pagarmeCustomerId: string | null;
+          pagarmeRecipientId: string | null;
+          paymentProvider: string | null;
         };
         Insert: {
           cidade?: string | null;
@@ -630,10 +635,9 @@ export type Database = {
             horaInicio: string;
             horaFim: string;
           }[];
-          asaasCustomerId?: string | null;
-          asaasWalletId?: string | null;
-          asaasAccountId?: string | null;
-          asaasSubaccountApiKey?: string | null;
+          pagarmeCustomerId?: string | null;
+          pagarmeRecipientId?: string | null;
+          paymentProvider?: string | null;
         };
         Update: {
           cidade?: string | null;
@@ -654,10 +658,9 @@ export type Database = {
             horaInicio: string;
             horaFim: string;
           }[];
-          asaasCustomerId?: string | null;
-          asaasWalletId?: string | null;
-          asaasAccountId?: string | null;
-          asaasSubaccountApiKey?: string | null;
+          pagarmeCustomerId?: string | null;
+          pagarmeRecipientId?: string | null;
+          paymentProvider?: string | null;
         };
         Relationships: [];
       };

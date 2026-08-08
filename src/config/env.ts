@@ -33,7 +33,7 @@ function parseOptionalUrl(
     return url.href.replace(/\/$/, "");
   } catch {
     console.warn(
-      `[env] ${label} inválida — pagamentos Asaas ficam desativados até corrigir no Render.`
+      `[env] ${label} inválida — pagamentos ficam desativados até corrigir no Render.`
     );
     return undefined;
   }
@@ -62,18 +62,24 @@ const envSchema = z.object({
   FRONTEND_URL: productionUrl,
   PUBLIC_BASE_URL: productionUrl.optional(),
   UPLOAD_DIR: z.string().default("./uploads"),
-  ASAAS_API_URL: z.preprocess(
-    (value) => parseOptionalUrl(value, "ASAAS_API_URL"),
+  PAGARME_API_URL: z.preprocess(
+    (value) => parseOptionalUrl(value, "PAGARME_API_URL"),
     z.string().optional()
   ),
-  ASAAS_API_KEY: z.preprocess(
+  PAGARME_SECRET_KEY: z.preprocess(
     (value) => parseOptionalSecret(value, 10),
     z.string().optional()
   ),
-  ASAAS_WEBHOOK_TOKEN: z.preprocess(
+  PAGARME_WEBHOOK_SECRET: z.preprocess(
     (value) => parseOptionalSecret(value, 8),
     z.string().optional()
   ),
+  /** Recipient id da Papufy (plataforma) no split Pagar.me */
+  PAGARME_PLATFORM_RECIPIENT_ID: z.preprocess((value) => {
+    if (typeof value !== "string") return undefined;
+    const v = value.trim();
+    return v || undefined;
+  }, z.string().optional()),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -166,9 +172,12 @@ export function isCorsOriginAllowed(origin: string | undefined): boolean {
   return false;
 }
 
-const paymentsEnabled = Boolean(
-  config.ASAAS_API_URL && config.ASAAS_API_KEY
-);
+const pagarmeConfigured = Boolean(config.PAGARME_SECRET_KEY);
+const paymentsEnabled = pagarmeConfigured;
+
+const pagarmeApiUrl = (
+  config.PAGARME_API_URL ?? "https://api.pagar.me/core/v5"
+).replace(/\/$/, "");
 
 export const env = {
   ...config,
@@ -178,7 +187,10 @@ export const env = {
   uploadDir: path.resolve(config.UPLOAD_DIR),
   publicBaseUrl,
   paymentsEnabled,
-  ASAAS_API_URL: config.ASAAS_API_URL?.replace(/\/$/, "") ?? "",
-  ASAAS_API_KEY: config.ASAAS_API_KEY ?? "",
-  ASAAS_WEBHOOK_TOKEN: config.ASAAS_WEBHOOK_TOKEN ?? "",
+  paymentProvider: pagarmeConfigured ? ("pagarme" as const) : null,
+  pagarmeConfigured,
+  PAGARME_API_URL: pagarmeApiUrl,
+  PAGARME_SECRET_KEY: config.PAGARME_SECRET_KEY ?? "",
+  PAGARME_WEBHOOK_SECRET: config.PAGARME_WEBHOOK_SECRET ?? "",
+  PAGARME_PLATFORM_RECIPIENT_ID: config.PAGARME_PLATFORM_RECIPIENT_ID ?? "",
 };

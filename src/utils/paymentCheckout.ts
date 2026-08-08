@@ -76,12 +76,3 @@ export function normalizeCheckoutPaymentInput(input: CheckoutPaymentInput): {
 }
 
 export const PLATFORM_SPLIT_PERCENT = 93.0;
-
-export function buildAsaasSplit(walletId: string) {
-  return [
-    {
-      walletId,
-      percentualValue: PLATFORM_SPLIT_PERCENT,
-    },
-  ];
-}

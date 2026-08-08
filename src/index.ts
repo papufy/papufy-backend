@@ -21,7 +21,9 @@ async function bootstrap() {
       `CORS: ${env.corsOrigins.join(", ")} (+ *.vercel.app em produção)`
     );
     if (env.paymentsEnabled) {
-      console.log("Pagamentos Asaas: habilitado");
+      console.log(
+        `Pagamentos: habilitado (${env.paymentProvider ?? "desconhecido"})`
+      );
     }
   });
 }

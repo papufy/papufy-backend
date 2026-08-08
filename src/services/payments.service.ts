@@ -1,21 +1,10 @@
 import { assertNoError, newId, supabase } from "../lib/db";
-import {
-  asaasRequest,
-  asaasSubaccountRequest,
-  fetchAsaasPixQrCode,
-  mapAsaasPaymentStatus,
-  normalizePixEncodedImage,
-  type AsaasFinanceBalance,
-  type AsaasPaymentResponse,
-  type AsaasTransferResponse,
-} from "../lib/asaasClient";
 import type { Tables } from "../types/database";
 import { env } from "../config/env";
 import type { BillingType, TransactionStatus } from "../types/enums";
 import { normalizeListingType } from "../types/enums";
 import { sanitizePhone, sanitizeText } from "../utils/sanitize";
 import {
-  normalizeAsaasBirthDate,
   parseBirthDateInput,
   isValidBirthDate,
 } from "../utils/birthDate";
@@ -23,17 +12,14 @@ import { PaymentProfileIncompleteError } from "../errors/paymentProfile";
 import { AppError, forbidden, badRequest } from "../utils/errors";
 import { parseProposalFields } from "../utils/messageProposal";
 import {
-  buildAsaasSplit,
   normalizeCheckoutPaymentInput,
   type CheckoutPaymentInput,
   type PaymentProfilePatch,
 } from "../utils/paymentCheckout";
 import { publicFileUrl } from "../middleware/upload";
-import {
-  ensureAsaasRecipientWallet,
-  getAsaasSubaccountCredentials,
-} from "./asaasOnboarding.service";
 import { chatService } from "./chat.service";
+import { getPaymentProvider } from "../payments/provider";
+import { pagarmeProvider } from "../payments/pagarmeProvider";
 
 interface CreateCheckoutInput extends CheckoutPaymentInput {
   listingId: string;
@@ -42,19 +28,34 @@ interface CreateCheckoutInput extends CheckoutPaymentInput {
 type ProposalCheckoutInput = CheckoutPaymentInput;
 
 const USER_PAYMENT_SELECT =
-  "id, nome, email, telefone, cidade, uf, curriculoUrl, cpfCnpj, asaasCustomerId, asaasWalletId, createdAt, updatedAt";
+  "id, nome, email, telefone, cidade, uf, curriculoUrl, cpfCnpj, pagarmeCustomerId, pagarmeRecipientId, paymentProvider, createdAt, updatedAt";
 
-const USER_ASAAS_CUSTOMER_SELECT =
-  "id, nome, email, telefone, cpfCnpj, dataNascimento, asaasCustomerId";
+const USER_PAYER_SELECT =
+  "id, nome, email, telefone, cpfCnpj, dataNascimento, pagarmeCustomerId, paymentProvider";
 
-type AsaasCustomerUserRow = {
+type PayerUserRow = {
   id: string;
   nome: string;
   email: string;
   telefone: string | null;
   cpfCnpj: string | null;
   dataNascimento: string | null;
-  asaasCustomerId: string | null;
+  pagarmeCustomerId: string | null;
+  paymentProvider: string | null;
+};
+
+type UnifiedChargeResult = {
+  paymentProvider: "pagarme";
+  /** ID principal para sync/webhook (Pagar.me charge id) */
+  paymentId: string;
+  pagarmeOrderId: string | null;
+  pagarmeChargeId: string | null;
+  pixQrCodeImage?: string;
+  pixCopyPaste?: string;
+  status: TransactionStatus;
+  invoiceUrl?: string | null;
+  paymentLink?: string | null;
+  dueDate?: string | null;
 };
 
 function buildDueDate(daysAhead = 1): string {
@@ -74,12 +75,12 @@ export class PaymentsService {
   private async applyPayerProfilePatch(
     userId: string,
     patch?: PaymentProfilePatch
-  ): Promise<AsaasCustomerUserRow> {
+  ): Promise<PayerUserRow> {
     if (!patch) {
-      return assertNoError<AsaasCustomerUserRow>(
+      return assertNoError<PayerUserRow>(
         await supabase
           .from("User")
-          .select(USER_ASAAS_CUSTOMER_SELECT)
+          .select(USER_PAYER_SELECT)
           .eq("id", userId)
           .maybeSingle(),
         "Usuário não encontrado."
@@ -123,35 +124,34 @@ export class PaymentsService {
       return this.applyPayerProfilePatch(userId);
     }
 
-    return assertNoError<AsaasCustomerUserRow>(
+    return assertNoError<PayerUserRow>(
       await supabase
         .from("User")
         .update(update)
         .eq("id", userId)
-        .select(USER_ASAAS_CUSTOMER_SELECT)
+        .select(USER_PAYER_SELECT)
         .single(),
       "Usuário não encontrado."
     );
   }
 
   /**
-   * Garante que o pagador exista no Asaas (POST /v3/customers) e retorna `cus_...`.
-   * Persiste `asaasCustomerId` na tabela User na primeira cobrança (Pix ou cartão).
+   * Garante customer no Pagar.me e persiste o id no User.
    */
-  private async ensureAsaasCustomer(
+  private async ensurePspCustomer(
     userId: string,
     patch?: PaymentProfilePatch
   ): Promise<string> {
-    if (!env.paymentsEnabled) {
+    if (!env.paymentsEnabled || !env.paymentProvider) {
       throw badRequest(
-        "Pagamentos não configurados. Defina ASAAS_API_URL e ASAAS_API_KEY no Render."
+        "Pagamentos não configurados. Defina PAGARME_SECRET_KEY no Render."
       );
     }
 
     try {
       const user = await this.applyPayerProfilePatch(userId, patch);
 
-      const existingCustomerId = user.asaasCustomerId?.trim();
+      const existingCustomerId = user.pagarmeCustomerId?.trim();
       if (existingCustomerId) {
         return existingCustomerId;
       }
@@ -173,36 +173,26 @@ export class PaymentsService {
         );
       }
 
-      const phone = user.telefone ? sanitizePhone(user.telefone) : undefined;
-      const birthDate = normalizeAsaasBirthDate(user.dataNascimento);
-
-      const customer = await asaasRequest<{ id: string }>("/customers", {
-        method: "POST",
-        body: JSON.stringify({
-          name: user.nome,
-          email: user.email,
-          cpfCnpj,
-          mobilePhone: phone,
-          ...(cpfCnpj.length === 11 && birthDate ? { birthDate } : {}),
-        }),
+      const provider = getPaymentProvider();
+      const { customerId } = await provider.ensureCustomer({
+        userId,
+        nome: user.nome,
+        email: user.email,
+        cpfCnpj,
+        telefone: user.telefone,
+        dataNascimento: user.dataNascimento,
       });
-
-      const asaasCustomerId = customer.id?.trim();
-      if (!asaasCustomerId) {
-        throw badRequest(
-          "O Asaas não retornou o identificador do cliente. Tente novamente."
-        );
-      }
 
       await supabase
         .from("User")
         .update({
-          asaasCustomerId,
+          pagarmeCustomerId: customerId,
+          paymentProvider: "pagarme",
           updatedAt: new Date().toISOString(),
         })
         .eq("id", userId);
 
-      return asaasCustomerId;
+      return customerId;
     } catch (err) {
       if (err instanceof PaymentProfileIncompleteError) {
         throw err;
@@ -212,12 +202,53 @@ export class PaymentsService {
       }
       const detail = err instanceof Error ? err.message : "erro desconhecido";
       throw badRequest(
-        `Não foi possível registrar seu cadastro de pagamento no Asaas. ${detail}`
+        `Não foi possível registrar seu cadastro de pagamento no Pagar.me. ${detail}`
       );
     }
   }
 
-  private async chargeViaAsaas(params: {
+  /** Recebedor do profissional no Pagar.me (recipient). */
+  private async ensurePspRecipient(professionalUserId: string): Promise<string> {
+    const user = assertNoError<{
+      id: string;
+      nome: string;
+      email: string;
+      telefone: string | null;
+      cpfCnpj: string | null;
+      dataNascimento: string | null;
+      pagarmeRecipientId: string | null;
+    }>(
+      await supabase
+        .from("User")
+        .select(
+          "id, nome, email, telefone, cpfCnpj, dataNascimento, pagarmeRecipientId"
+        )
+        .eq("id", professionalUserId)
+        .maybeSingle(),
+      "Profissional não encontrado."
+    );
+
+    if (user.pagarmeRecipientId?.trim()) {
+      return user.pagarmeRecipientId.trim();
+    }
+
+    const cpfCnpj = user.cpfCnpj ? this.digitsOnly(user.cpfCnpj) : "";
+    if (cpfCnpj.length < 11) {
+      throw new PaymentProfileIncompleteError(
+        ["cpfCnpj"],
+        "receiver",
+        "O profissional precisa completar CPF/CNPJ e dados bancários para receber via Pagar.me."
+      );
+    }
+
+    throw new PaymentProfileIncompleteError(
+      ["bankAccount"],
+      "receiver",
+      "O profissional precisa cadastrar conta bancária (Pagar.me) antes de receber pagamentos."
+    );
+  }
+
+  private async chargeViaActiveProvider(params: {
     contractorUserId: string;
     payerProfile?: PaymentProfilePatch;
     professionalUserId: string;
@@ -228,12 +259,7 @@ export class PaymentsService {
     creditCard?: CheckoutPaymentInput["creditCard"];
     creditCardHolderInfo?: CheckoutPaymentInput["creditCardHolderInfo"];
     remoteIp?: string;
-  }): Promise<{
-    asaasPayment: AsaasPaymentResponse;
-    pixQrCodeImage?: string;
-    pixCopyPaste?: string;
-    status: TransactionStatus;
-  }> {
+  }): Promise<UnifiedChargeResult> {
     let normalized: ReturnType<typeof normalizeCheckoutPaymentInput>;
     try {
       normalized = normalizeCheckoutPaymentInput({
@@ -248,54 +274,55 @@ export class PaymentsService {
       );
     }
 
-    const asaasCustomerId = await this.ensureAsaasCustomer(
+    if (!env.paymentProvider) {
+      throw badRequest("Pagamentos não configurados.");
+    }
+
+    const customerId = await this.ensurePspCustomer(
       params.contractorUserId,
       params.payerProfile
     );
-
-    const professionalWalletId = await ensureAsaasRecipientWallet(
+    const professionalRecipientId = await this.ensurePspRecipient(
       params.professionalUserId
     );
 
-    const asaasPayload: Record<string, unknown> = {
-      customer: asaasCustomerId,
+    const provider = getPaymentProvider();
+    const amountCents = Math.round(params.amountGross * 100);
+    const charge = await provider.chargeWithSplit({
       billingType: normalized.billingType,
-      value: params.amountGross,
-      dueDate: buildDueDate(1),
+      creditCard: normalized.creditCard,
+      creditCardHolderInfo: normalized.creditCardHolderInfo,
+      remoteIp: normalized.remoteIp,
+      customerId,
+      professionalRecipientId,
+      amountCents,
       description: params.description,
       externalReference: params.externalReference,
-      split: buildAsaasSplit(professionalWalletId),
-    };
-
-    if (normalized.billingType === "CREDIT_CARD") {
-      asaasPayload.creditCard = normalized.creditCard;
-      asaasPayload.creditCardHolderInfo = normalized.creditCardHolderInfo;
-      asaasPayload.remoteIp = normalized.remoteIp;
-    }
-
-    const asaasPayment = await asaasRequest<AsaasPaymentResponse>("/payments", {
-      method: "POST",
-      body: JSON.stringify(asaasPayload),
     });
 
-    let pixQrCodeImage: string | undefined;
-    let pixCopyPaste: string | undefined;
-    if (normalized.billingType === "PIX") {
-      const pix = await fetchAsaasPixQrCode(asaasPayment.id);
-      pixQrCodeImage = normalizePixEncodedImage(pix.encodedImage);
-      pixCopyPaste = pix.payload?.trim() || undefined;
-      if (!pixCopyPaste && !pixQrCodeImage) {
-        throw badRequest(
-          "Cobrança Pix criada, mas o QR Code ainda não está disponível. Tente novamente em instantes."
-        );
-      }
-    }
+    const status: TransactionStatus =
+      charge.status === "PAID"
+        ? "PAID"
+        : charge.status === "CANCELED"
+          ? "CANCELED"
+          : charge.status === "FAILED"
+            ? "CANCELED"
+            : "PENDING";
 
+    const raw = charge.raw as { id?: string; charges?: { id?: string }[] } | undefined;
+    const orderId = raw?.id ?? null;
+    const chargeId = raw?.charges?.[0]?.id ?? charge.paymentId;
     return {
-      asaasPayment,
-      pixQrCodeImage,
-      pixCopyPaste,
-      status: mapAsaasPaymentStatus(asaasPayment.status),
+      paymentProvider: "pagarme",
+      paymentId: chargeId,
+      pagarmeOrderId: orderId,
+      pagarmeChargeId: chargeId,
+      pixQrCodeImage: charge.pixQrCodeImage ?? undefined,
+      pixCopyPaste: charge.pixCopyPaste ?? undefined,
+      status,
+      invoiceUrl: charge.invoiceUrl ?? null,
+      paymentLink: charge.invoiceUrl ?? null,
+      dueDate: charge.dueDate ?? buildDueDate(1),
     };
   }
 
@@ -317,7 +344,6 @@ export class PaymentsService {
         nome: string;
         email: string;
         telefone: string | null;
-        asaasWalletId: string | null;
       };
     };
 
@@ -326,7 +352,7 @@ export class PaymentsService {
         .from("Listing")
         .select(
           `id, userId, titulo, tipo, preco, aCombinar, status,
-           user:User!Listing_userId_fkey(id, nome, email, telefone, asaasWalletId)`
+           user:User!Listing_userId_fkey(id, nome, email, telefone)`
         )
         .eq("id", input.listingId)
         .maybeSingle(),
@@ -352,19 +378,18 @@ export class PaymentsService {
     const platformFee = Number((amountGross * 0.07).toFixed(2));
     const professionalNet = Number((amountGross - platformFee).toFixed(2));
 
-    const { asaasPayment, pixQrCodeImage, pixCopyPaste, status } =
-      await this.chargeViaAsaas({
-        contractorUserId: contractorId,
-        payerProfile: input.payerProfile,
-        billingType: input.billingType,
-        amountGross,
-        description: `Papufy - ${listing.titulo}`,
-        externalReference: `${listing.id}:${contractorId}`,
-        professionalUserId: professional.id,
-        creditCard: input.creditCard,
-        creditCardHolderInfo: input.creditCardHolderInfo,
-        remoteIp: input.remoteIp,
-      });
+    const charge = await this.chargeViaActiveProvider({
+      contractorUserId: contractorId,
+      payerProfile: input.payerProfile,
+      billingType: input.billingType,
+      amountGross,
+      description: `Papufy - ${listing.titulo}`,
+      externalReference: `${listing.id}:${contractorId}`,
+      professionalUserId: professional.id,
+      creditCard: input.creditCard,
+      creditCardHolderInfo: input.creditCardHolderInfo,
+      remoteIp: input.remoteIp,
+    });
 
     const transaction = assertNoError<Tables<"Transaction">>(
       await supabase
@@ -374,27 +399,29 @@ export class PaymentsService {
           listingId: listing.id,
           contractorId,
           professionalId: listing.userId,
-          asaasPaymentId: asaasPayment.id,
+          pagarmeOrderId: charge.pagarmeOrderId,
+          pagarmeChargeId: charge.pagarmeChargeId,
+          paymentProvider: "pagarme",
           amountGross,
           platformFee,
           professionalNet,
           billingType: input.billingType,
-          status,
-          pixQrCodeImage: pixQrCodeImage ?? null,
-          pixCopyPaste: pixCopyPaste ?? null,
-          invoiceUrl: asaasPayment.invoiceUrl ?? asaasPayment.bankSlipUrl ?? null,
-          paymentLink: asaasPayment.invoiceUrl ?? null,
-          dueDate: asaasPayment.dueDate
-            ? new Date(asaasPayment.dueDate).toISOString()
+          status: charge.status,
+          pixQrCodeImage: charge.pixQrCodeImage ?? null,
+          pixCopyPaste: charge.pixCopyPaste ?? null,
+          invoiceUrl: charge.invoiceUrl ?? null,
+          paymentLink: charge.paymentLink ?? null,
+          dueDate: charge.dueDate
+            ? new Date(charge.dueDate).toISOString()
             : null,
-          paidAt: status === "PAID" ? new Date().toISOString() : null,
+          paidAt: charge.status === "PAID" ? new Date().toISOString() : null,
           updatedAt: new Date().toISOString(),
         })
         .select()
         .single()
     );
 
-    if (status === "PAID") {
+    if (charge.status === "PAID") {
       await supabase
         .from("Listing")
         .update({ status: "IN_PROGRESS", updatedAt: new Date().toISOString() })
@@ -404,13 +431,13 @@ export class PaymentsService {
     return {
       transaction,
       pix: {
-        encodedImage: pixQrCodeImage,
-        payload: pixCopyPaste,
+        encodedImage: charge.pixQrCodeImage,
+        payload: charge.pixCopyPaste,
       },
     };
   }
 
-  /** Mantido por compatibilidade — delega ao onboarding automático. */
+  /** Onboarding do recebedor — Pagar.me (register_information + conta bancária). */
   async createRecipientAccount(
     userId: string,
     data: {
@@ -418,27 +445,104 @@ export class PaymentsService {
       cpfCnpj: string;
       email: string;
       mobilePhone: string;
+      dataNascimento?: string;
+      motherName?: string;
+      professionalOccupation?: string;
+      /** Renda mensal em reais (convertida para centavos na API) */
       incomeValue?: number;
-      address?: string;
-      addressNumber?: string;
-      province?: string;
-      postalCode?: string;
+      bankAccount: {
+        holderName: string;
+        holderType: "individual" | "company";
+        holderDocument: string;
+        bank: string;
+        branchNumber: string;
+        branchCheckDigit?: string;
+        accountNumber: string;
+        accountCheckDigit: string;
+        type: "checking" | "savings";
+      };
+      recipientAddress: {
+        street: string;
+        streetNumber: string;
+        complementary?: string;
+        neighborhood: string;
+        city: string;
+        state: string;
+        zipCode: string;
+        referencePoint?: string;
+      };
     }
   ) {
+    const updateUser: {
+      nome: string;
+      cpfCnpj: string;
+      telefone: string | null;
+      updatedAt: string;
+      dataNascimento?: string;
+      cidade?: string;
+      uf?: string;
+    } = {
+      nome: sanitizeText(data.name, 120),
+      cpfCnpj: data.cpfCnpj.replace(/\D/g, ""),
+      telefone: sanitizePhone(data.mobilePhone),
+      updatedAt: new Date().toISOString(),
+    };
+    if (data.dataNascimento) {
+      const birthDate = parseBirthDateInput(data.dataNascimento);
+      if (!isValidBirthDate(birthDate)) {
+        throw badRequest("Data de nascimento inválida.");
+      }
+      updateUser.dataNascimento = birthDate;
+    }
+    if (data.recipientAddress.city) {
+      updateUser.cidade = sanitizeText(data.recipientAddress.city, 80);
+    }
+    if (data.recipientAddress.state) {
+      updateUser.uf = data.recipientAddress.state.trim().toUpperCase().slice(0, 2);
+    }
+
+    await supabase.from("User").update(updateUser).eq("id", userId);
+
+    const userRow = assertNoError<{
+      pagarmeRecipientId: string | null;
+      dataNascimento: string | null;
+    }>(
+      await supabase
+        .from("User")
+        .select("pagarmeRecipientId, dataNascimento")
+        .eq("id", userId)
+        .maybeSingle(),
+      "Usuário não encontrado."
+    );
+
+    const provider = getPaymentProvider();
+    const monthlyIncomeCents = data.incomeValue
+      ? Math.round(data.incomeValue * 100)
+      : 300_000;
+
+    const recipient = await provider.ensureRecipient({
+      userId,
+      nome: data.name,
+      email: data.email,
+      cpfCnpj: data.cpfCnpj,
+      telefone: data.mobilePhone,
+      dataNascimento: userRow.dataNascimento ?? data.dataNascimento,
+      motherName: data.motherName,
+      professionalOccupation: data.professionalOccupation,
+      monthlyIncomeCents,
+      bankAccount: data.bankAccount,
+      address: data.recipientAddress,
+      existingRecipientId: userRow.pagarmeRecipientId,
+    });
+
     await supabase
       .from("User")
       .update({
-        nome: sanitizeText(data.name, 120),
-        cpfCnpj: data.cpfCnpj.replace(/\D/g, ""),
-        telefone: sanitizePhone(data.mobilePhone),
+        pagarmeRecipientId: recipient.recipientId,
+        paymentProvider: "pagarme",
         updatedAt: new Date().toISOString(),
       })
       .eq("id", userId);
-
-    const walletId = await ensureAsaasRecipientWallet(userId, {
-      cpfCnpj: data.cpfCnpj,
-      telefone: data.mobilePhone,
-    });
 
     const updatedUser = assertNoError(
       await supabase
@@ -449,8 +553,11 @@ export class PaymentsService {
     );
 
     return {
-      walletId,
-      accountId: walletId,
+      walletId: recipient.recipientId,
+      accountId: recipient.recipientId,
+      recipientId: recipient.recipientId,
+      status: recipient.status,
+      provider: "pagarme" as const,
       user: updatedUser,
     };
   }
@@ -462,48 +569,29 @@ export class PaymentsService {
   private async resolvePixForTransaction(
     transaction: Tables<"Transaction">
   ): Promise<{ pixQrCodeImage?: string; pixCopyPaste?: string }> {
-    if (transaction.pixCopyPaste?.trim() || transaction.pixQrCodeImage?.trim()) {
-      return {
-        pixQrCodeImage: transaction.pixQrCodeImage ?? undefined,
-        pixCopyPaste: transaction.pixCopyPaste ?? undefined,
-      };
-    }
-
-    if (!transaction.asaasPaymentId) {
-      return {};
-    }
-
-    const pix = await fetchAsaasPixQrCode(transaction.asaasPaymentId);
-    const pixQrCodeImage = normalizePixEncodedImage(pix.encodedImage);
-    const pixCopyPaste = pix.payload?.trim() || undefined;
-
-    if (pixQrCodeImage || pixCopyPaste) {
-      await supabase
-        .from("Transaction")
-        .update({
-          pixQrCodeImage: pixQrCodeImage ?? null,
-          pixCopyPaste: pixCopyPaste ?? null,
-          updatedAt: new Date().toISOString(),
-        })
-        .eq("id", transaction.id);
-    }
-
-    return { pixQrCodeImage, pixCopyPaste };
+    return {
+      pixQrCodeImage: transaction.pixQrCodeImage ?? undefined,
+      pixCopyPaste: transaction.pixCopyPaste ?? undefined,
+    };
   }
 
-  private async syncTransactionFromAsaas(
+  private async syncTransactionFromPsp(
     tx: Tables<"Transaction">
   ): Promise<Tables<"Transaction">> {
-    if (!tx.asaasPaymentId || tx.status !== "PENDING") {
+    if (tx.status !== "PENDING") {
+      return tx;
+    }
+
+    const paymentId =
+      tx.pagarmeChargeId?.trim() || tx.pagarmeOrderId?.trim();
+
+    if (!paymentId) {
       return tx;
     }
 
     try {
-      const payment = await asaasRequest<AsaasPaymentResponse>(
-        `/payments/${tx.asaasPaymentId}`
-      );
-      const mapped = mapAsaasPaymentStatus(payment.status);
-      if (mapped !== "PAID") {
+      const { status } = await pagarmeProvider.getPaymentStatus(paymentId);
+      if (status !== "PAID") {
         return tx;
       }
 
@@ -590,11 +678,11 @@ export class PaymentsService {
     }
 
     const professional = assertNoError<
-      Pick<Tables<"User">, "id" | "nome" | "email" | "telefone" | "asaasWalletId">
+      Pick<Tables<"User">, "id" | "nome" | "email" | "telefone">
     >(
       await supabase
         .from("User")
-        .select("id, nome, email, telefone, asaasWalletId")
+        .select("id, nome, email, telefone")
         .eq("id", proposal.senderId)
         .maybeSingle(),
       "Profissional não encontrado."
@@ -609,7 +697,7 @@ export class PaymentsService {
         "Transação da proposta não encontrada."
       );
 
-      const synced = await this.syncTransactionFromAsaas(existing);
+      const synced = await this.syncTransactionFromPsp(existing);
 
       if (synced.status === "PAID" || synced.status === "RELEASED") {
         throw badRequest("Esta proposta já foi paga.");
@@ -648,19 +736,18 @@ export class PaymentsService {
     const platformFee = Number((amountGross * 0.07).toFixed(2));
     const professionalNet = Number((amountGross - platformFee).toFixed(2));
 
-    const { asaasPayment, pixQrCodeImage, pixCopyPaste, status } =
-      await this.chargeViaAsaas({
-        contractorUserId: contractorId,
-        payerProfile: input.payerProfile,
-        billingType: input.billingType,
-        amountGross,
-        description: `Papufy - ${listing.titulo}`,
-        externalReference: `${listing.id}:${contractorId}:${proposal.id}`,
-        professionalUserId: professional.id,
-        creditCard: input.creditCard,
-        creditCardHolderInfo: input.creditCardHolderInfo,
-        remoteIp: input.remoteIp,
-      });
+    const charge = await this.chargeViaActiveProvider({
+      contractorUserId: contractorId,
+      payerProfile: input.payerProfile,
+      billingType: input.billingType,
+      amountGross,
+      description: `Papufy - ${listing.titulo}`,
+      externalReference: `${listing.id}:${contractorId}:${proposal.id}`,
+      professionalUserId: professional.id,
+      creditCard: input.creditCard,
+      creditCardHolderInfo: input.creditCardHolderInfo,
+      remoteIp: input.remoteIp,
+    });
 
     const transaction = assertNoError<Tables<"Transaction">>(
       await supabase
@@ -670,20 +757,22 @@ export class PaymentsService {
           listingId: listing.id,
           contractorId,
           professionalId: professional.id,
-          asaasPaymentId: asaasPayment.id,
+          pagarmeOrderId: charge.pagarmeOrderId,
+          pagarmeChargeId: charge.pagarmeChargeId,
+          paymentProvider: "pagarme",
           amountGross,
           platformFee,
           professionalNet,
           billingType: input.billingType,
-          status,
-          pixQrCodeImage: pixQrCodeImage ?? null,
-          pixCopyPaste: pixCopyPaste ?? null,
-          invoiceUrl: asaasPayment.invoiceUrl ?? asaasPayment.bankSlipUrl ?? null,
-          paymentLink: asaasPayment.invoiceUrl ?? null,
-          dueDate: asaasPayment.dueDate
-            ? new Date(asaasPayment.dueDate).toISOString()
+          status: charge.status,
+          pixQrCodeImage: charge.pixQrCodeImage ?? null,
+          pixCopyPaste: charge.pixCopyPaste ?? null,
+          invoiceUrl: charge.invoiceUrl ?? null,
+          paymentLink: charge.paymentLink ?? null,
+          dueDate: charge.dueDate
+            ? new Date(charge.dueDate).toISOString()
             : null,
-          paidAt: status === "PAID" ? new Date().toISOString() : null,
+          paidAt: charge.status === "PAID" ? new Date().toISOString() : null,
           updatedAt: new Date().toISOString(),
         })
         .select()
@@ -694,7 +783,7 @@ export class PaymentsService {
       .from("Message")
       .update({ transactionId: transaction.id })
       .eq("id", messageId);
-    if (status === "PAID") {
+    if (charge.status === "PAID") {
       await supabase
         .from("Listing")
         .update({ status: "IN_PROGRESS", updatedAt: new Date().toISOString() })
@@ -704,8 +793,8 @@ export class PaymentsService {
     return {
       transaction,
       pix: {
-        encodedImage: pixQrCodeImage,
-        payload: pixCopyPaste,
+        encodedImage: charge.pixQrCodeImage,
+        payload: charge.pixCopyPaste,
       },
     };
   }
@@ -724,7 +813,7 @@ export class PaymentsService {
       throw forbidden("Sem permissão para esta transação.");
     }
 
-    return this.syncTransactionFromAsaas(tx);
+    return this.syncTransactionFromPsp(tx);
   }
 
   async listMyTransactions(userId: string) {
@@ -838,44 +927,78 @@ export class PaymentsService {
     return markedIds;
   }
 
-  /** Saldo na subconta Asaas + quanto o Papufy já liberou para saque. */
+  /** Saldo Pagar.me + liberado no Papufy (saque = min dos dois). */
   async getSubaccountBalance(professionalId: string) {
-    const { walletId, apiKey } = await getAsaasSubaccountCredentials(professionalId);
-    const balance = await asaasSubaccountRequest<AsaasFinanceBalance>(
-      "/finance/balance",
-      apiKey,
-      { expectedStatus: [200] }
+    const user = assertNoError<{ pagarmeRecipientId: string | null }>(
+      await supabase
+        .from("User")
+        .select("pagarmeRecipientId")
+        .eq("id", professionalId)
+        .maybeSingle(),
+      "Usuário não encontrado."
     );
-    const asaasBalance = Number(balance.balance ?? 0);
-    const papufyWithdrawable = await this.sumReleasedNetForProfessional(professionalId);
+
+    const recipientId = user.pagarmeRecipientId?.trim() || null;
+    const papufyWithdrawable =
+      await this.sumReleasedNetForProfessional(professionalId);
+
+    if (!recipientId) {
+      return {
+        balance: 0,
+        walletId: null as string | null,
+        papufyWithdrawable,
+        maxWithdraw: 0,
+        waitingFunds: 0,
+        needsOnboarding: true,
+      };
+    }
+
+    const pspBalance = await pagarmeProvider.getBalance({ recipientId });
     const maxWithdraw = Number(
-      Math.min(asaasBalance, papufyWithdrawable).toFixed(2)
+      Math.min(pspBalance.available, papufyWithdrawable).toFixed(2)
     );
 
     return {
-      balance: asaasBalance,
-      walletId,
+      balance: pspBalance.available,
+      walletId: recipientId,
       papufyWithdrawable,
       maxWithdraw,
+      waitingFunds: pspBalance.waitingFunds ?? 0,
+      needsOnboarding: false,
     };
   }
 
-  /** Saque Pix a partir do saldo da subconta Asaas (POST /transfers). */
+  /**
+   * Saque: transferência Pagar.me para a conta bancária do recipient
+   * + marca RELEASED → WITHDRAWN no Papufy.
+   */
   async requestSubaccountWithdraw(
     professionalId: string,
-    input: { value: number; pixAddressKey: string }
+    input: { value: number; pixAddressKey?: string }
   ) {
     const value = Number(Number(input.value).toFixed(2));
     if (!Number.isFinite(value) || value < 1) {
       throw badRequest("Informe um valor de saque válido (mínimo R$ 1,00).");
     }
 
-    const pixAddressKey = sanitizeText(input.pixAddressKey, 120).trim();
-    if (!pixAddressKey) {
-      throw badRequest("Informe a chave Pix de destino.");
+    const user = assertNoError<{ pagarmeRecipientId: string | null }>(
+      await supabase
+        .from("User")
+        .select("pagarmeRecipientId")
+        .eq("id", professionalId)
+        .maybeSingle(),
+      "Usuário não encontrado."
+    );
+
+    const recipientId = user.pagarmeRecipientId?.trim();
+    if (!recipientId) {
+      throw badRequest(
+        "Cadastre sua conta bancária antes de solicitar saque."
+      );
     }
 
-    const papufyWithdrawable = await this.sumReleasedNetForProfessional(professionalId);
+    const papufyWithdrawable =
+      await this.sumReleasedNetForProfessional(professionalId);
     if (papufyWithdrawable < 1) {
       throw badRequest(
         "Nenhum valor liberado no Papufy para saque. Confirme a conclusão do serviço com o cliente em cada pagamento."
@@ -887,45 +1010,33 @@ export class PaymentsService {
       );
     }
 
-    const { walletId, apiKey } = await getAsaasSubaccountCredentials(professionalId);
-    const asaasBalance = await asaasSubaccountRequest<AsaasFinanceBalance>(
-      "/finance/balance",
-      apiKey,
-      { expectedStatus: [200] }
-    );
-    const balance = Number(asaasBalance.balance ?? 0);
-    if (value > balance + 0.009) {
+    const pspBalance = await pagarmeProvider.getBalance({ recipientId });
+    if (value > pspBalance.available + 0.009) {
       throw badRequest(
-        `Saldo insuficiente na subconta Asaas. Disponível: R$ ${balance.toFixed(2).replace(".", ",")}.`
+        `Saldo insuficiente na Pagar.me. Disponível: R$ ${pspBalance.available.toFixed(2).replace(".", ",")}.`
       );
     }
 
-    const transfer = await asaasSubaccountRequest<AsaasTransferResponse>(
-      "/transfers",
-      apiKey,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          value,
-          operationType: "PIX",
-          pixAddressKey,
-          description: `Saque Papufy — ${walletId.slice(0, 8)}`,
-        }),
-        expectedStatus: [200, 201],
-      }
-    );
+    const transfer = await pagarmeProvider.withdraw({
+      value,
+      recipientId,
+    });
+
+    const pixKeyNote =
+      input.pixAddressKey?.trim() ||
+      `bank-transfer:${recipientId.slice(0, 12)}`;
 
     const markedTransactionIds = await this.markReleasedTransactionsWithdrawn({
       professionalId,
       withdrawAmount: value,
-      transferId: transfer.id,
-      pixKey: pixAddressKey,
+      transferId: transfer.transferId,
+      pixKey: pixKeyNote,
     });
 
     return {
-      transferId: transfer.id,
+      transferId: transfer.transferId,
       value,
-      walletId,
+      walletId: recipientId,
       status: transfer.status ?? "PENDING",
       markedTransactionIds,
       papufyWithdrawableBefore: papufyWithdrawable,
@@ -1000,30 +1111,35 @@ export class PaymentsService {
     return { transaction: finalTx };
   }
 
-  async handleWebhook(payload: {
-    event?: string;
-    payment?: { id?: string };
-    transfer?: { id?: string };
-  }) {
-    const transferId = payload.transfer?.id;
-    if (transferId && payload.event?.startsWith("TRANSFER_")) {
-      return { transferAcknowledged: true, transferId };
-    }
+  async handleWebhook(payload: Record<string, unknown>) {
+    // Pagar.me: { type: "charge.paid", data: { id, ... } }
+    const pagarmeType =
+      typeof payload.type === "string" ? payload.type : undefined;
+    const pagarmeData =
+      payload.data && typeof payload.data === "object"
+        ? (payload.data as Record<string, unknown>)
+        : undefined;
+    const pagarmeChargeId =
+      typeof pagarmeData?.id === "string" ? pagarmeData.id : undefined;
 
-    const paymentId = payload.payment?.id;
-    if (!paymentId) return { ignored: true };
+    if (!pagarmeType || !pagarmeChargeId) {
+      return { ignored: true };
+    }
 
     const { data: tx } = await supabase
       .from("Transaction")
       .select("*")
-      .eq("asaasPaymentId", paymentId)
+      .or(
+        `pagarmeChargeId.eq.${pagarmeChargeId},pagarmeOrderId.eq.${pagarmeChargeId}`
+      )
       .maybeSingle();
 
     if (!tx) return { ignored: true };
 
     if (
-      payload.event === "PAYMENT_RECEIVED" ||
-      payload.event === "PAYMENT_CONFIRMED"
+      pagarmeType === "charge.paid" ||
+      pagarmeType === "order.paid" ||
+      pagarmeType === "charge.captured"
     ) {
       await supabase
         .from("Transaction")
@@ -1036,7 +1152,10 @@ export class PaymentsService {
 
       await supabase
         .from("Listing")
-        .update({ status: "IN_PROGRESS", updatedAt: new Date().toISOString() })
+        .update({
+          status: "IN_PROGRESS",
+          updatedAt: new Date().toISOString(),
+        })
         .eq("id", tx.listingId);
 
       const conversation = await supabase
@@ -1052,13 +1171,13 @@ export class PaymentsService {
           "Pagamento confirmado. Serviço em andamento."
         );
       }
-
-      return { updated: true };
+      return { updated: true, provider: "pagarme" };
     }
 
     if (
-      payload.event === "PAYMENT_DELETED" ||
-      payload.event === "PAYMENT_OVERDUE"
+      pagarmeType === "charge.payment_failed" ||
+      pagarmeType === "charge.canceled" ||
+      pagarmeType === "order.canceled"
     ) {
       await supabase
         .from("Transaction")
@@ -1067,10 +1186,10 @@ export class PaymentsService {
           updatedAt: new Date().toISOString(),
         })
         .eq("id", tx.id);
-      return { updated: true };
+      return { updated: true, provider: "pagarme" };
     }
 
-    return { ignored: true };
+    return { ignored: true, provider: "pagarme" };
   }
 
   async reportTransactionProblem(input: {

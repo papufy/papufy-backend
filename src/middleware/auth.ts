@@ -5,8 +5,8 @@ import type { Tables } from "../types/database";
 import { AppError } from "../utils/errors";
 import { verifyToken } from "../utils/jwt";
 
-/** Nunca expor asaasSubaccountApiKey em respostas HTTP. */
-type PublicUser = Omit<Tables<"User">, "senha" | "asaasSubaccountApiKey">;
+/** Sem senha nas respostas HTTP. */
+type PublicUser = Omit<Tables<"User">, "senha">;
 
 export async function requireAuth(
   req: Request,
@@ -33,7 +33,7 @@ export async function requireAuth(
       await supabase
         .from("User")
         .select(
-          "id, nome, email, telefone, cidade, uf, curriculoUrl, cpfCnpj, asaasCustomerId, asaasWalletId, asaasAccountId, createdAt, updatedAt"
+          "id, nome, email, telefone, cidade, uf, curriculoUrl, cpfCnpj, pagarmeCustomerId, pagarmeRecipientId, createdAt, updatedAt"
         )
         .eq("id", payload.sub)
         .maybeSingle()

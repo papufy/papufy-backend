@@ -27,6 +27,8 @@ type PublicUser = Pick<
   | "curriculoUrl"
   | "cpfCnpj"
   | "dataNascimento"
+  | "pagarmeCustomerId"
+  | "pagarmeRecipientId"
   | "createdAt"
 > & {
   aptidoes: string[];
@@ -34,7 +36,7 @@ type PublicUser = Pick<
 };
 
 const USER_PUBLIC_SELECT =
-  "id, nome, email, telefone, cidade, uf, curriculoUrl, cpfCnpj, dataNascimento, aptidoes, horariosDisponiveis, createdAt" as const;
+  "id, nome, email, telefone, cidade, uf, curriculoUrl, cpfCnpj, dataNascimento, pagarmeCustomerId, pagarmeRecipientId, aptidoes, horariosDisponiveis, createdAt" as const;
 
 function toPublicUser(row: Record<string, unknown>): PublicUser {
   return {
@@ -47,6 +49,8 @@ function toPublicUser(row: Record<string, unknown>): PublicUser {
     curriculoUrl: (row.curriculoUrl as string | null) ?? null,
     cpfCnpj: (row.cpfCnpj as string | null) ?? null,
     dataNascimento: (row.dataNascimento as string | null) ?? null,
+    pagarmeCustomerId: (row.pagarmeCustomerId as string | null) ?? null,
+    pagarmeRecipientId: (row.pagarmeRecipientId as string | null) ?? null,
     aptidoes: parseAptidoes(row.aptidoes),
     horariosDisponiveis: parseHorarios(row.horariosDisponiveis),
     createdAt: row.createdAt as string,

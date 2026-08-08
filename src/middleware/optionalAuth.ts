@@ -3,10 +3,10 @@ import { supabase } from "../lib/db";
 import type { Tables } from "../types/database";
 import { verifyToken } from "../utils/jwt";
 
-type PublicUser = Omit<Tables<"User">, "senha" | "asaasSubaccountApiKey">;
+type PublicUser = Omit<Tables<"User">, "senha">;
 
 const USER_PUBLIC_SELECT =
-  "id, nome, email, telefone, cidade, uf, curriculoUrl, cpfCnpj, asaasCustomerId, asaasWalletId, asaasAccountId, createdAt, updatedAt";
+  "id, nome, email, telefone, cidade, uf, curriculoUrl, cpfCnpj, pagarmeCustomerId, pagarmeRecipientId, createdAt, updatedAt";
 
 export async function optionalAuth(
   req: Request,

@@ -5,16 +5,40 @@ import { paymentsService } from "../services/payments.service";
 import { BillingTypeValues } from "../types/enums";
 import { badRequest } from "../utils/errors";
 
+const bankAccountSchema = z.object({
+  holderName: z.string().min(3),
+  holderType: z.enum(["individual", "company"]).default("individual"),
+  holderDocument: z.string().min(11),
+  bank: z.string().min(1),
+  branchNumber: z.string().min(1),
+  branchCheckDigit: z.string().optional(),
+  accountNumber: z.string().min(1),
+  accountCheckDigit: z.string().min(1),
+  type: z.enum(["checking", "savings"]).default("checking"),
+});
+
+const recipientAddressSchema = z.object({
+  street: z.string().min(2),
+  streetNumber: z.string().min(1),
+  complementary: z.string().optional(),
+  neighborhood: z.string().min(2),
+  city: z.string().min(2),
+  state: z.string().min(2).max(2),
+  zipCode: z.string().min(8),
+  referencePoint: z.string().optional(),
+});
+
 const onboardingSchema = z.object({
   name: z.string().min(3),
   cpfCnpj: z.string().min(11),
   email: z.string().email(),
   mobilePhone: z.string().min(8),
+  dataNascimento: z.string().min(8),
+  motherName: z.string().min(3).optional(),
+  professionalOccupation: z.string().min(2).optional(),
   incomeValue: z.coerce.number().positive().optional(),
-  address: z.string().optional(),
-  addressNumber: z.string().optional(),
-  province: z.string().optional(),
-  postalCode: z.string().optional(),
+  bankAccount: bankAccountSchema,
+  recipientAddress: recipientAddressSchema,
 });
 
 const creditCardSchema = z.object({
@@ -96,13 +120,14 @@ const reportSchema = z.object({
 
 const subaccountWithdrawSchema = z.object({
   value: z.coerce.number().positive(),
-  pixAddressKey: z.string().min(3).max(120),
+  /** Opcional — saque vai para a conta bancária cadastrada no recipient */
+  pixAddressKey: z.string().min(3).max(120).optional(),
 });
 
 function assertPaymentsEnabled(): void {
   if (!env.paymentsEnabled) {
     throw badRequest(
-      "Pagamentos não configurados. Defina ASAAS_API_URL e ASAAS_API_KEY no Render."
+      "Pagamentos não configurados. Defina PAGARME_SECRET_KEY no Render."
     );
   }
 }
@@ -221,10 +246,21 @@ export class PaymentsController {
   async webhook(req: Request, res: Response, next: NextFunction) {
     try {
       assertPaymentsEnabled();
-      if (env.ASAAS_WEBHOOK_TOKEN) {
-        const token = req.headers["asaas-access-token"]?.toString();
-        if (token !== env.ASAAS_WEBHOOK_TOKEN) {
-          res.status(401).json({ error: "Webhook não autorizado." });
+
+      // Pagar.me: header opcional (configure no dashboard + PAGARME_WEBHOOK_SECRET)
+      const pagarmeSecret = env.PAGARME_WEBHOOK_SECRET?.trim();
+      if (pagarmeSecret) {
+        const auth =
+          req.headers["authorization"]?.toString() ||
+          req.headers["x-hub-signature"]?.toString() ||
+          req.headers["x-pagarme-signature"]?.toString();
+        // Se o payload parece Pagar.me e o secret está setado, exige match simples
+        const looksPagarme =
+          typeof req.body?.type === "string" &&
+          (req.body.type.startsWith("charge.") ||
+            req.body.type.startsWith("order."));
+        if (looksPagarme && auth && !auth.includes(pagarmeSecret)) {
+          res.status(401).json({ error: "Webhook Pagar.me não autorizado." });
           return;
         }
       }

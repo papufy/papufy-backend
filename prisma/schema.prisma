@@ -62,10 +62,9 @@ model User {
   telefone                String?
   cidade                  String?
   uf                      String?
-  asaasCustomerId         String?
-  asaasWalletId           String?
-  asaasAccountId          String?
-  asaasSubaccountApiKey   String?
+  pagarmeCustomerId       String?
+  pagarmeRecipientId      String?
+  paymentProvider         String?
   curriculoUrl            String?
   dataNascimento          DateTime?      @db.Date
   aptidoes                Json           @default("[]")
@@ -207,7 +206,9 @@ model Transaction {
   listingId        String
   contractorId     String
   professionalId   String
-  asaasPaymentId   String?           @unique
+  pagarmeOrderId   String?
+  pagarmeChargeId  String?
+  paymentProvider  String?
   amountGross      Float
   platformFee      Float
   professionalNet  Float

@@ -5,7 +5,7 @@ import { sanitizeChatMessage } from "../utils/sanitize";
 import { env } from "../config/env";
 import { forbidden } from "../utils/errors";
 import type { PaymentProfilePatch } from "../utils/paymentCheckout";
-import { ensureAsaasRecipientWallet } from "./asaasOnboarding.service";
+import { PaymentProfileIncompleteError } from "../errors/paymentProfile";
 import { normalizeListingType } from "../types/enums";
 import {
   CONTACT_VIOLATION_MESSAGE,
@@ -681,7 +681,40 @@ export class ChatService {
     }
 
     if (env.paymentsEnabled) {
-      await ensureAsaasRecipientWallet(senderId, receiverProfile);
+      const professional = assertNoError<{
+        pagarmeRecipientId: string | null;
+        cpfCnpj: string | null;
+      }>(
+        await supabase
+          .from("User")
+          .select("pagarmeRecipientId, cpfCnpj")
+          .eq("id", senderId)
+          .maybeSingle(),
+        "Usuário não encontrado."
+      );
+
+      if (receiverProfile?.cpfCnpj || receiverProfile?.telefone) {
+        await supabase
+          .from("User")
+          .update({
+            ...(receiverProfile.cpfCnpj
+              ? { cpfCnpj: receiverProfile.cpfCnpj.replace(/\D/g, "") }
+              : {}),
+            ...(receiverProfile.telefone
+              ? { telefone: receiverProfile.telefone }
+              : {}),
+            updatedAt: new Date().toISOString(),
+          })
+          .eq("id", senderId);
+      }
+
+      if (!professional.pagarmeRecipientId?.trim()) {
+        throw new PaymentProfileIncompleteError(
+          ["bankAccount"],
+          "receiver",
+          "Cadastre sua conta bancária (Pagar.me) no perfil antes de enviar propostas."
+        );
+      }
     }
 
     const displayContent = `Proposta de serviço enviada: R$ ${value.toFixed(2)}`;

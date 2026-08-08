@@ -24,7 +24,11 @@ END $$;
 CREATE INDEX IF NOT EXISTS "Message_transactionId_idx"
   ON "Message"("transactionId");
 
-CREATE TYPE IF NOT EXISTS "SupportTicketStatus" AS ENUM ('ABERTO', 'EM_ANALISE', 'RESOLVIDO');
+DO $$ BEGIN
+  CREATE TYPE "SupportTicketStatus" AS ENUM ('ABERTO', 'EM_ANALISE', 'RESOLVIDO');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE TABLE IF NOT EXISTS "SupportTicket" (
   "id" TEXT NOT NULL,
